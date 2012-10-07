@@ -179,8 +179,45 @@ sr595 sr(
 		STCP				// anSTCP
 		);
 
+#define kDISPVALUE_COUNT				1
+#define kDISPVALUE_NOVALUEAVAILABLE		0xFFFF
+#define kDISPVALUE_DIGITCOUNT			3
+#define kDISPVALUE_INDPAIRSCOUNT		3
 
-volatile uint8_t nDisplayNumber;
+volatile	uint16_t	aintDisplayValue[kDISPVALUE_COUNT];  				// 	Value to be displayed in the LEDs
+volatile	uint8_t		idxDisplayValue;
+volatile	uint8_t		aintDisplaySegments[kDISPVALUE_COUNT][kDISPVALUE_DIGITCOUNT+kDISPVALUE_INDPAIRSCOUNT];  // 	Value to be displayed on each led
+volatile	uint8_t		nResetting;
+
+void setDisplayValue(uint8_t index, uint16_t intNewValue) {
+	if (nResetting) { return; }
+	if (aintDisplayValue[index]==intNewValue) { return; }
+	
+	aintDisplayValue[index] = intNewValue;
+	switch (intNewValue) {
+		case kDISPVALUE_NOVALUEAVAILABLE: {
+			uint8_t i, j;
+			for (i=0; i<kDISPVALUE_DIGITCOUNT; i++) {
+				aintDisplaySegments[index][i] = LED7OUT_DASH;
+			}
+			break;
+		}
+		default: {
+			uint8_t i, j;
+			for (i=0; i<kDISPVALUE_DIGITCOUNT; i++) {
+				uint16_t nCounterDivisor = 10;
+				for (j = 0; j<i; j++) {
+					nCounterDivisor = nCounterDivisor * 10;
+				}
+				uint32_t nCurrentDigit = (intNewValue % nCounterDivisor);
+				if (nCounterDivisor >= 100) { nCurrentDigit = nCurrentDigit / (nCounterDivisor / 10); }
+				ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+					aintDisplaySegments[index][i] = aint7segdigits[nCurrentDigit];
+				}
+			}
+		}
+	}
+}
 
 int main(void) {
 	// Run at 8mhz
@@ -217,11 +254,20 @@ int main(void) {
 
 	sei();								//	Start interrupt handling
 	}
+	
+	uint16_t nDisplayValue = 0; 
+	setDisplayValue(0, 232);
+	_delay_ms(1000);
+	setDisplayValue(0, 233);
+	_delay_ms(1000);
 	while (1) {
+	}
+	while (0) {
 
-		_delay_ms(250);
-		if ( ++nDisplayNumber > 0xFF) {
-			nDisplayNumber= 0;
+		setDisplayValue(0, nDisplayValue);
+		_delay_ms(1000);
+		if ( ++nDisplayValue > 999) {
+			nDisplayValue = 0;
 		}
 		//~ sr.setOutput(1);
 		//~ while(1) {
@@ -237,7 +283,6 @@ int main(void) {
 		
 }
 
-#define kDIGIT_COUNT 3
 
 // Interrupt routine for servicing LED refreshment
 ISR(TIMER0_COMPA_vect) {
@@ -245,26 +290,21 @@ ISR(TIMER0_COMPA_vect) {
 	
 	// Turn off all LEDs
 	sr.setOutput(0);
-	
-	uint8_t nOutput;
-	for (int i=0; i<=idxActiveDigit; i++) {
-		uint16_t nCounterDivisor = 1;
-		for (int j = 0; j<i; j++) {
-			nCounterDivisor = nCounterDivisor * 10;
-		}
-		uint32_t nCurrentDigit = (nDisplayNumber % nCounterDivisor);
-		if (nCounterDivisor >= 100) { nCurrentDigit = nCurrentDigit / (nCounterDivisor / 10); }
-		nOutput = aint7segdigits[nCurrentDigit];
-	}
-	
-	sr.writeByte(0, nOutput);
-	sr.writeByte(1, 1<<(idxActiveDigit + 2));
-	//~ sr.writeByte(1, nCathodeVal);
+	sr.writeByte(0, aintDisplaySegments[idxDisplayValue][idxActiveDigit]);
+	sr.writeByte(1, 1<<(idxActiveDigit + 1));
 	sr.setOutput(1);
 	
-	if (++idxActiveDigit >= kDIGIT_COUNT) {
+	if (++idxActiveDigit >= kDISPVALUE_DIGITCOUNT) {
 		idxActiveDigit = 0;
 	}
 	
 	return;
+}
+
+ISR(RESET) {
+	nResetting = 0xFF;
+	// Shut down the display
+	for (int i=0;i<kDISPVALUE_COUNT;i++) 
+		for (int j=0;j<kDISPVALUE_DIGITCOUNT+kDISPVALUE_INDPAIRSCOUNT;j++) 
+			aintDisplaySegments[i][j] = 0;
 }
