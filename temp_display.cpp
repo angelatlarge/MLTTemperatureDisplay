@@ -7,6 +7,39 @@
 #include <avr/interrupt.h>
 //~ #include <math.h>
 
+#define LEDSEG_A	(1<<5)	
+#define LEDSEG_B	(1<<4)	
+#define LEDSEG_C	(1<<2)	
+#define LEDSEG_DP	(1<<3)	
+#define LEDSEG_D	(1<<1)	
+#define LEDSEG_E	(1<<0)	
+#define LEDSEG_F	(1<<6)	
+#define LEDSEG_G	(1<<7)	
+
+// Font and digits for 7segment
+// ... digits
+#define LED7OUT_0		LEDSEG_A | LEDSEG_B | LEDSEG_C | LEDSEG_D | LEDSEG_E | LEDSEG_F
+#define LED7OUT_1		LEDSEG_B | LEDSEG_C
+#define LED7OUT_2		LEDSEG_A | LEDSEG_B | LEDSEG_G | LEDSEG_E | LEDSEG_D
+#define LED7OUT_3		LEDSEG_A | LEDSEG_B | LEDSEG_G | LEDSEG_C | LEDSEG_D
+#define LED7OUT_4		LEDSEG_F | LEDSEG_G | LEDSEG_B | LEDSEG_C
+#define LED7OUT_5		LEDSEG_A | LEDSEG_F | LEDSEG_G | LEDSEG_C | LEDSEG_D
+#define LED7OUT_6		LEDSEG_A | LEDSEG_F | LEDSEG_G | LEDSEG_E | LEDSEG_C | LEDSEG_D
+#define LED7OUT_7		LEDSEG_A | LEDSEG_B | LEDSEG_C
+#define LED7OUT_8		LEDSEG_A | LEDSEG_B | LEDSEG_C | LEDSEG_D | LEDSEG_E | LEDSEG_F | LEDSEG_G
+#define LED7OUT_9		LEDSEG_A | LEDSEG_B | LEDSEG_C | LEDSEG_D | LEDSEG_F | LEDSEG_G
+// ... letters
+#define LED7OUT_A		LEDSEG_A | LEDSEG_F | LEDSEG_B | LEDSEG_G | LEDSEG_E | LEDSEG_C
+#define LED7OUT_B		LEDSEG_A | LEDSEG_F | LEDSEG_G | LEDSEG_E | LEDSEG_C | LEDSEG_D
+#define LED7OUT_C		LEDSEG_A | LEDSEG_F | LEDSEG_E | LEDSEG_D
+#define LED7OUT_E		LEDSEG_A | LEDSEG_F | LEDSEG_G | LEDSEG_E | LEDSEG_D
+#define LED7OUT_F		LEDSEG_A | LEDSEG_F | LEDSEG_G | LEDSEG_E
+// ... symbols
+#define LED7OUT_DASH	LEDSEG_G
+#define LED7OUT_ALL		0xFF
+
+uint8_t aint7segdigits[] = {LED7OUT_0, LED7OUT_1,LED7OUT_2,LED7OUT_3,LED7OUT_4,LED7OUT_5,LED7OUT_6,LED7OUT_7,LED7OUT_8,LED7OUT_9};
+
 #define SR74XX595_PORT	PORTD
 #define SR74XX595_DS	02
 #define SR74XX595_SHCP	05
@@ -20,7 +53,7 @@ class sr595
 	public:
 		sr595(uint8_t nCascadeCount, uint8_t fParallel, volatile uint8_t *ptrPort, uint8_t nOE, uint8_t nDS, uint8_t nSHCP, uint8_t anSTCP[]);
 		~sr595();
-		void write_byte(uint8_t nIndex, uint8_t nData);				
+		void writeByte(uint8_t nIndex, uint8_t nData);				
 	protected:
 		uint8_t m_nCascadeCount;
 		volatile uint8_t *m_ptrPort;
@@ -107,9 +140,9 @@ sr595::~sr595() {
 }
 		
 
-void sr595::write_byte(uint8_t nIndex, uint8_t nData)
+void sr595::writeByte(uint8_t nIndex, uint8_t nData)
 {
-	if (1) { //(m_anData[nIndex] != nData) {
+	if (m_anData[nIndex] != nData) {
 		m_anData[nIndex] = nData;
 		for (int nByte = nIndex; nByte>=0; nByte++) {
 			for (int nBit=7; nBit>=0; nBit--) {
@@ -133,15 +166,10 @@ void sr595::write_byte(uint8_t nIndex, uint8_t nData)
 #define DELAY_LONG	1000
 #define DO_SHORT_DELAY	_delay_ms(250)
 //~ #define DO_SHORT_DELAY	;
-int main(void) {
-	// RUn at 8mhz
-	//~ CLKPR = 1<<CLKPCE;
-	//~ CLKPR = 0;
 	
-	DDRD = 0xFF;
-	
-	uint8_t STCP[2] = {SR74XX595_STCP0, SR74XX595_STCP1};
-	sr595 sr(
+uint8_t STCP[2] = {SR74XX595_STCP0, SR74XX595_STCP1};
+
+sr595 sr(
 		2, 					// nCascadeCount
 		1, 					// fParallel
 		&SR74XX595_PORT, 	// ptrPort
@@ -150,24 +178,93 @@ int main(void) {
 		SR74XX595_SHCP, 	// nSHCP
 		STCP				// anSTCP
 		);
+
+
+volatile uint8_t nDisplayNumber;
+
+int main(void) {
+	// Run at 8mhz
+	//~ CLKPR = 1<<CLKPCE;
+	//~ CLKPR = 0;
 	
-	sr.write_byte(1, 0xFF);	// Enable all common cathodes
-	sr.write_byte(0, 0x00);	// Nothing is on
+	DDRD = 0xFF;
+	
+	
+	sr.writeByte(1, 0xFF);	// Enable all common cathodes
+	sr.writeByte(0, 0xFF);	// Nothing is on
 	sr.setOutput(1);
 	
+	while (0) {
+		sr.writeByte(1, 1<<3);	// Enable all common cathodes
+		//~ _delay_ms(250);
+		//~ sr.writeByte(0, 0x7E);	// Nothing is on
+		sr.setOutput(1);
+	}
+	
+	if (1) {
+	/* 	Timer stuff for display PWM - using timer 0
+		Using 8 bit timer because this update happens fast, 
+		the timer does not need to count very high
+	*/
+	TCNT0 = 0;										// 	Initial counter value
+	TCCR0A =(1<<WGM01);								// 	CTC (Clear on capture = comparison) mode
+	//~ TCCR0B = (1<<CS02) | (0<<CS01) | (1<<CS00);		// Prescaler = 1024
+	//~ TCCR0B = (1<<CS02) | (0<<CS01) | (0<<CS00);		// Prescaler = 256
+	TCCR0B = (0<CS02) | (1<<CS01) | (1<<CS00);		// Prescaler = 8
+	//~ OCR0A = F_CPU/1024/1000;						// 	Refresh every second
+	OCR0A = 0x80;										// 	About 1000 times per second (1Khz)
+	TIMSK0 |= (1<<OCIE0A);								//	Enable interrupts on compare match A
+
+	sei();								//	Start interrupt handling
+	}
 	while (1) {
 
-		
-		sr.setOutput(1);
-		while(1) {
-			for (int i= 0; i<8; i++) {
-				sr.write_byte(0, 1<<i);
-				sr.write_byte(1, 0xFF);
-				//~ sr.write_byte(1, 1<<i);
-				DO_SHORT_DELAY;
-				//~ sr.toggleOutput();
-			}
+		_delay_ms(250);
+		if ( ++nDisplayNumber > 0xFF) {
+			nDisplayNumber= 0;
 		}
+		//~ sr.setOutput(1);
+		//~ while(1) {
+			//~ for (int i= 0; i<8; i++) {
+				//~ sr.write_byte(0, 1<<i);
+				//~ sr.write_byte(1, 0xFF);
+				//~ sr.writeByte(1, 1<<i);
+				//~ DO_SHORT_DELAY;
+				//~ sr.toggleOutput();
+			//~ }
+		//~ }
 	}
 		
+}
+
+#define kDIGIT_COUNT 3
+
+// Interrupt routine for servicing LED refreshment
+ISR(TIMER0_COMPA_vect) {
+	static uint8_t idxActiveDigit = 1;
+	
+	// Turn off all LEDs
+	sr.setOutput(0);
+	
+	uint8_t nOutput;
+	for (int i=0; i<=idxActiveDigit; i++) {
+		uint16_t nCounterDivisor = 1;
+		for (int j = 0; j<i; j++) {
+			nCounterDivisor = nCounterDivisor * 10;
+		}
+		uint32_t nCurrentDigit = (nDisplayNumber % nCounterDivisor);
+		if (nCounterDivisor >= 100) { nCurrentDigit = nCurrentDigit / (nCounterDivisor / 10); }
+		nOutput = aint7segdigits[nCurrentDigit];
+	}
+	
+	sr.writeByte(0, nOutput);
+	sr.writeByte(1, 1<<(idxActiveDigit + 2));
+	//~ sr.writeByte(1, nCathodeVal);
+	sr.setOutput(1);
+	
+	if (++idxActiveDigit >= kDIGIT_COUNT) {
+		idxActiveDigit = 0;
+	}
+	
+	return;
 }
