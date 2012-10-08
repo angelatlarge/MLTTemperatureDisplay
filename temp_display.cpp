@@ -156,10 +156,10 @@ void sr595::writeByte(uint8_t nIndex, uint8_t nData)
 			}
 			if (m_fParallel) { break; }
 		}
+		STCP_HI(nIndex);
+		SHCP_LO();
+		STCP_LO(nIndex);		
 	}
-	STCP_HI(nIndex);
-	SHCP_LO();
-	STCP_LO(nIndex);
 	
 }
 
@@ -335,14 +335,14 @@ int main(void) {
 	uint16_t nDisplayValue = 0; 
 	
 	
+	//~ setDisplayValue(0, 232);
+	//~ _delay_ms(1000);
+	//~ setDisplayValue(0, 233);
+	//~ _delay_ms(1000);
+	//~ setDisplayValue(0, 223);
+	//~ _delay_ms(1000);
 	setDisplayValue(0, 232);
-	_delay_ms(1000);
-	setDisplayValue(0, 233);
-	_delay_ms(1000);
-	setDisplayValue(0, 223);
-	_delay_ms(1000);
-	setDisplayValue(0, 232);
-	_delay_ms(1000);
+	//~ _delay_ms(1000);
 	
 //FILE uart_out = FDEV_SETUP_STREAM(uart_putChar, NULL, _FDEV_SETUP_WRITE);
 	uart_out = fdevopen(uart_putChar, uart_getChar);
@@ -356,15 +356,18 @@ int main(void) {
 	puts("Hello world!\n");
 	
 	
-	while (1) {
-		puts("Hello, world.");//, nDisplayValue++);
+	while (0) {
+		char strNumber[10];
+		puts("Hello, world");//, nDisplayValue++);
 		_delay_ms(1000);
+		nDisplayValue++;
 	}
 	
-	while (0) {
+	while (1) {
+		// Just count up
 
 		setDisplayValue(0, nDisplayValue);
-		_delay_ms(1000);
+		_delay_ms(100);
 		if ( ++nDisplayValue > 999) {
 			nDisplayValue = 0;
 		}
