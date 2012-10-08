@@ -185,39 +185,116 @@ sr595 sr(
 #define kDISPVALUE_INDPAIRSCOUNT		3
 
 volatile	uint16_t	aintDisplayValue[kDISPVALUE_COUNT];  				// 	Value to be displayed in the LEDs
-volatile	uint8_t		idxDisplayValue;
+volatile	uint8_t		idxDisplayValue = 0;
 volatile	uint8_t		aintDisplaySegments[kDISPVALUE_COUNT][kDISPVALUE_DIGITCOUNT+kDISPVALUE_INDPAIRSCOUNT];  // 	Value to be displayed on each led
 volatile	uint8_t		nResetting;
 
-void setDisplayValue(uint8_t index, uint16_t intNewValue) {
+void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 	if (nResetting) { return; }
-	if (aintDisplayValue[index]==intNewValue) { return; }
+	if (aintDisplayValue[idxDispValue]==intNewValue) { return; }
 	
-	aintDisplayValue[index] = intNewValue;
-	switch (intNewValue) {
+	switch (aintDisplayValue[idxDispValue] = intNewValue) {
 		case kDISPVALUE_NOVALUEAVAILABLE: {
-			uint8_t i, j;
-			for (i=0; i<kDISPVALUE_DIGITCOUNT; i++) {
-				aintDisplaySegments[index][i] = LED7OUT_DASH;
+			for (int idxDigit=0; idxDigit<kDISPVALUE_DIGITCOUNT; idxDigit++) {
+				ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+					aintDisplaySegments[idxDispValue][idxDigit] = LED7OUT_DASH;
+				}
 			}
 			break;
 		}
 		default: {
-			uint8_t i, j;
-			for (i=0; i<kDISPVALUE_DIGITCOUNT; i++) {
-				uint16_t nCounterDivisor = 10;
-				for (j = 0; j<i; j++) {
-					nCounterDivisor = nCounterDivisor * 10;
+			for (int idxDigit=0; idxDigit<kDISPVALUE_DIGITCOUNT; idxDigit++) {
+				int nCurrentDigit = intNewValue;
+				for (int i = 0; i<idxDigit; i++) {
+					nCurrentDigit = nCurrentDigit / 10;
 				}
-				uint32_t nCurrentDigit = (intNewValue % nCounterDivisor);
-				if (nCounterDivisor >= 100) { nCurrentDigit = nCurrentDigit / (nCounterDivisor / 10); }
+				nCurrentDigit = nCurrentDigit % 10;
 				ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-					aintDisplaySegments[index][i] = aint7segdigits[nCurrentDigit];
+					aintDisplaySegments[idxDispValue][idxDigit] = aint7segdigits[nCurrentDigit];
 				}
 			}
 		}
 	}
 }
+
+
+//~ #include "uart.h"
+//////////////////////////////////////////////
+// Serial 
+#include <stdio.h>
+#include <avr/io.h>
+
+#ifndef F_CPU
+#       error Must define F_CPU or pass it as compiler argument
+#endif
+
+extern "C"{
+ FILE * uart_out;
+}
+
+//~ FILE uart_out = FDEV_SETUP_STREAM(uart_putChar, NULL, _FDEV_SETUP_WRITE);
+/*
+void uart_init(){
+#       define BAUD 9600
+#       include <util/setbaud.h>
+        UBRR0H = UBRRH_VALUE;
+        UBRR0L = UBRRL_VALUE;
+//~ #       if USE_2x
+        //~ USCR0A |= _BV(U2X);
+//~ #       else
+        //~ USCR0A &= ~_BV(U2X);
+//~ #       endif
+        UCSR0B |= _BV(TXEN);                    // enable transmit
+}
+
+int uart_putChar(char c, FILE *unused){
+        if (c == '\n')                          // a line feed character also
+                uart_putChar('\r', unused);     // requires a carriage return
+        loop_until_bit_is_set(UCSR0A, UDRE0);   // wait for UDR0 to be ready
+        UDR0 = c;                               // write character
+        return 0;                               // return
+}
+#endif
+*/
+
+//////////////////////////////////////////////
+// Serial 
+
+#include <stdio.h>
+#define BAUD 9600
+
+#include <util/setbaud.h>
+
+void uart_init(void) {
+    UBRR0H = UBRRH_VALUE;
+    UBRR0L = UBRRL_VALUE;
+
+#if USE_2X
+    UCSR0A |= _BV(U2X0);
+#else
+    UCSR0A &= ~(_BV(U2X0));
+#endif
+
+    UCSR0C = _BV(UCSZ01) | _BV(UCSZ00); // 8-bit data  
+    UCSR0B = _BV(RXEN0) | _BV(TXEN0);   // Enable RX and TX 
+}
+
+int uart_putChar(char c, FILE *stream) {
+    if (c == '\n') {
+        uart_putChar('\r', stream);
+    }
+    loop_until_bit_is_set(UCSR0A, UDRE0);
+    UDR0 = c;
+	return 0;
+}
+
+int uart_getChar(FILE *stream) {
+    loop_until_bit_is_set(UCSR0A, RXC0); // Wait until data exists. 
+    return UDR0;
+}
+
+//////////////////////////////////////////////
+// Main
 
 int main(void) {
 	// Run at 8mhz
@@ -256,12 +333,34 @@ int main(void) {
 	}
 	
 	uint16_t nDisplayValue = 0; 
+	
+	
 	setDisplayValue(0, 232);
 	_delay_ms(1000);
 	setDisplayValue(0, 233);
 	_delay_ms(1000);
+	setDisplayValue(0, 223);
+	_delay_ms(1000);
+	setDisplayValue(0, 232);
+	_delay_ms(1000);
+	
+//FILE uart_out = FDEV_SETUP_STREAM(uart_putChar, NULL, _FDEV_SETUP_WRITE);
+	uart_out = fdevopen(uart_putChar, uart_getChar);
+	stdout = stdin = uart_out;
+	
+	//~ FILE uart_output = FDEV_SETUP_STREAM(uart_putchar, NULL, _FDEV_SETUP_WRITE);
+	//~ FILE uart_input = FDEV_SETUP_STREAM(NULL, uart_getchar, _FDEV_SETUP_READ);
+    uart_init();
+    //~ stdout = &uart_output;
+    //~ stdin  = &uart_input;
+	puts("Hello world!\n");
+	
+	
 	while (1) {
+		puts("Hello, world.");//, nDisplayValue++);
+		_delay_ms(1000);
 	}
+	
 	while (0) {
 
 		setDisplayValue(0, nDisplayValue);
