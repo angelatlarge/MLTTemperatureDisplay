@@ -1,6 +1,6 @@
 # AVR-GCC Makefile
 PROJECT=temp_display
-SOURCES=temp_display.cpp
+SOURCES=temp_display.cpp uart.c
 #TOOLS_DIR=/home/kirill/arduino/arduino-1.0.1-windows/hardware/tools/avr/bin
 AVR_DIR=/usr/local/avr
 TOOLS_DIR=$(AVR_DIR)/bin
@@ -11,6 +11,7 @@ CXX=$(TOOLS_DIR)/avr-g++
 # results:
 #	/usr/local/avr/bin/avr-g++ -c   temp_display.cpp -o temp_display.o
 OBJCOPY=$(TOOLS_DIR)/avr-objcopy
+SIZE=$(TOOLS_DIR)/avr-size
 AVRDUDE=/home/kirill/arduino/arduino-1.0/hardware/tools/avr/bin/avrdude.exe
 AVRDUDE_CONF	= C:\\cygwin\\home\\kirill\\arduino\\arduino-1.0\\hardware\\tools\\avr\\etc\\avrdude.conf
 MCU=atmega48a
@@ -49,6 +50,7 @@ CPPFLAGS	=	\
 CFLAGS       = -std=gnu99
 CXXFLAGS     = -fno-exceptions
 LDFLAGS       = -mmcu=$(MCU) -Wl,--gc-sections -Os
+SIZEFLAGS	= -t -d
 			
 #~ CPPFLAGS      = -mmcu=$(MCU) -DF_CPU=$(F_CPU) -DARDUINO=$(ARDUINO_VERSION) \
 			#~ $(USER_CPPFLAGS) \
@@ -77,6 +79,7 @@ $(PROJECT).elf:	$(PROJECT).o
 
 %.hex: %.elf
 	$(OBJCOPY) -O ihex -R .eeprom $< $@
+	$(SIZE) $(SIZEFLAGS) $<
 
 %.o: %.cc
 	$(CXX) -c $(CPPFLAGS) $(CXXFLAGS) $< -o $@
