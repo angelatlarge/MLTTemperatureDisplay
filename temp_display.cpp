@@ -158,7 +158,7 @@ void sr595::writeByte(uint8_t nIndex, uint8_t nData)
 {
 	if (m_anData[nIndex] != nData) {
 		m_anData[nIndex] = nData;
-		for (int nByte = nIndex; nByte>=0; nByte++) {
+		for (int nByte = nIndex; nByte>=0; nByte--) {
 			for (int nBit=7; nBit>=0; nBit--) {
 				SHCP_LO();
 				if (m_anData[nByte] & (0x01 << nBit)) {
@@ -179,22 +179,30 @@ void sr595::writeByte(uint8_t nIndex, uint8_t nData)
 
 void sr595::writeData(uint8_t nStartIndex, uint8_t nCount, uint8_t anData[])
 {
-	if (m_fParallel) {
-	} else {
-		for (int nByte = nStartIndex + nCount - 1; nByte >=nStartIndex ; nByte--) {
-			if (m_anData[nByte] != anData[nByte-nStartIndex]) {
-				m_anData[nByte] = anData[nByte-nStartIndex];
-				for (int nBit=7; nBit>=0; nBit--) {
-					SHCP_LO();
-					if (m_anData[nByte] & (0x01 << nBit)) {
-						DS_HI();
-					} else {
-						DS_LO();
-					}
-					SHCP_HI();
+	uint8_t fSentEarlier = 0;
+	for (int nByte = nStartIndex + nCount - 1; nByte >=0 ; nByte--) {
+		if (fSentEarlier || (m_anData[nByte] != anData[nByte-nStartIndex])) {
+			fSentEarlier = 1;
+			m_anData[nByte] = anData[nByte-nStartIndex];
+			for (int nBit=7; nBit>=0; nBit--) {
+				SHCP_LO();
+				if (m_anData[nByte] & (0x01 << nBit)) {
+					DS_HI();
+				} else {
+					DS_LO();
 				}
+				SHCP_HI();
+			}
+			
+			if (m_fParallel) {
+				STCP_HI(nByte);
+				SHCP_LO();
+				STCP_LO(nByte);		
+				if (nByte <=nStartIndex) break;
 			}
 		}
+	}
+	if (!m_fParallel) {
 		for (int nByte = nStartIndex + nCount - 1; nByte >=nStartIndex ; nByte--) {
 			STCP_HI(nByte);
 		}		
@@ -211,7 +219,7 @@ void sr595::writeData(uint8_t nStartIndex, uint8_t nCount, uint8_t anData[])
 //~ #define DO_SHORT_DELAY	;
 	
 uint8_t STCP[2] = {SR74XX595_STCP0, SR74XX595_STCP1};
-#define PARALLEL_595
+#undef PARALLEL_595
 sr595 sr(
 		2, 					// nCascadeCount
 #		ifdef PARALLEL_595
@@ -449,11 +457,13 @@ int main(void) {
 		//~ nDisplayValue++;
 	//~ }
 	
+	setDisplayValue(0, 123);
+	
 	while (1) {
 		// Just count up
 
 		setDisplayValue(0, nDisplayValue);
-		_delay_ms(100);
+		_delay_ms(250);
 		if ( ++nDisplayValue > 999) {
 			nDisplayValue = 0;
 		}
@@ -472,6 +482,8 @@ int main(void) {
 			//~ }
 		//~ }
 	}
+	while (1) {
+	}
 		
 }
 
@@ -481,16 +493,20 @@ ISR(TIMER0_COMPA_vect) {
 	static uint8_t idxActiveDigit = 1;
 	
 	// Turn off all LEDs
+//~ #	ifdef PARALLEL_595
+	//~ sr.setOutput(0);
+	//~ sr.writeByte(0, aintDisplaySegments[idxDisplayValue][idxActiveDigit]);
+	//~ sr.writeByte(1, 1<<(idxActiveDigit + 1));
+	//~ sr.setOutput(1);
+//~ #	else PARALLEL_595
 #	ifdef PARALLEL_595
 	sr.setOutput(0);
-	sr.writeByte(0, aintDisplaySegments[idxDisplayValue][idxActiveDigit]);
-	sr.writeByte(1, 1<<(idxActiveDigit + 1));
-	sr.setOutput(1);
-#	else PARALLEL_595
+#	endif PARALLEL_595
 	uint8_t anData[2];
 	anData[0] = aintDisplaySegments[idxDisplayValue][idxActiveDigit];
 	anData[1] = 1<<(idxActiveDigit + 1);
 	sr.writeData(0, 2, anData);
+#	ifdef PARALLEL_595
 	sr.setOutput(1);
 #	endif PARALLEL_595
 	if (++idxActiveDigit >= kDISPVALUE_DIGITCOUNT) {
