@@ -1,0 +1,48 @@
+<html>
+<head>
+	<style type="text/css">
+		body 	{ font-family: Georgia; } 	
+		h1, h2, h3 		{ font-family: Candara; } 	
+		.quote	{ 
+			background: #E0E0E0; 
+			padding-top: 0.5em;
+			padding-bottom: 0.5em;
+		}
+		span.code {	font-family: Courier, "Courier New"; } 	
+		P.code 	{	font-family: Courier, "Courier New"; font-size:0.85em;} 	
+		col.centered { text-align:center; }
+
+	</style>
+	<title>Temperature Controller Version C notes</title>
+</head>
+<body>
+
+<table style="border-spacing: 20pt 0pt; ">
+<col class="centered" />
+<col />
+<col />
+<col />
+<tr><th>	Function	</th><th>	AVR Pin		</th><th>	Pirate<br>Channel	</th><th>	Pirate<br>Color	</th><th>			</th></tr>
+<tr><td>	STCP2		</td><td>	12 (L-3)	</td><td>	0					</td><td>	CS				</td><td>	white	</td></tr>
+<tr><td>	DS			</td><td>	4			</td><td>	1					</td><td>	MISO			</td><td>	black	</td></tr>
+<tr><td>	SHCP		</td><td>	11 (L-4)	</td><td>	2					</td><td>	CLK				</td><td>	purple	</td></tr>
+<tr><td>	STCP1		</td><td>	6			</td><td>	3					</td><td>	MOSI			</td><td>	grey	</td></tr>
+<tr><td>	OE			</td><td>	5			</td><td>	4					</td><td>	AUX				</td><td>	blue	</td></tr>
+</table>	
+<!--
+0
+1	MISO	black	DS
+2	CLK		purple	SHCP
+3	MOSI	grey	OE
+4	AUX		blue	STCP1
+
+0
+1	MISO	black	DS
+2	CLK		purple	STCP1
+3	MOSI	grey	OE
+4	AUX		blue	SHCP
+
+
+-->
+</body>
+</html>
