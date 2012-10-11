@@ -1,4 +1,9 @@
+#define SPEEDUP8X
+#ifdef SPEEDUP8X
+#define F_CPU 8000000UL /* 1 MHz Internal Oscillator */
+#else
 #define F_CPU 1000000UL /* 1 MHz Internal Oscillator */
+#endif
 #include <avr/io.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +20,16 @@
 #define LEDSEG_E	(1<<0)	
 #define LEDSEG_F	(1<<6)	
 #define LEDSEG_G	(1<<7)	
+
+#define IND0_R		LEDSEG_D	
+#define IND0_G		LEDSEG_E	
+#define IND0_B		LEDSEG_F	
+#define IND1_R		LEDSEG_A	
+#define IND1_G		LEDSEG_B	
+#define IND1_B		LEDSEG_C	
+uint8_t	aintIndicatorSegmentR[2] = {IND0_R, IND1_R};
+uint8_t	aintIndicatorSegmentG[2] = {IND0_G, IND1_G};
+uint8_t	aintIndicatorSegmentB[2] = {IND0_B, IND1_B};
 
 // Font and digits for 7segment
 // ... digits
@@ -262,10 +277,11 @@ volatile	uint16_t	idxKeyTimerCount;							// Count of timer 1
 #define kDISPVALUE_NOVALUEAVAILABLE		0xFFFF
 #define kDISPVALUE_DIGITCOUNT			3
 #define kDISPVALUE_INDPAIRSCOUNT		3
+#define kDISPVALUE_CATHODECOUNT			(kDISPVALUE_DIGITCOUNT+kDISPVALUE_INDPAIRSCOUNT)
 
 volatile	uint16_t	aintDisplayValue[kDISPVALUE_COUNT];  				// 	Value to be displayed in the LEDs
 volatile	uint8_t		idxDisplayValue = 0;
-volatile	uint8_t		aintDisplaySegments[kDISPVALUE_COUNT][kDISPVALUE_DIGITCOUNT+kDISPVALUE_INDPAIRSCOUNT];  // 	Value to be displayed on each led
+volatile	uint8_t		aintDisplaySegments[kDISPVALUE_COUNT][kDISPVALUE_CATHODECOUNT];  // 	Value to be displayed on each led
 volatile	uint8_t		nResetting;
 
 
@@ -416,8 +432,10 @@ int main(void) {
 #endif
 	
 	// Run at 8mhz
-	//~ CLKPR = 1<<CLKPCE;
-	//~ CLKPR = 0;
+#ifdef SPEEDUP8X
+	CLKPR = 1<<CLKPCE;
+	CLKPR = 0;
+#endif
 	
 	DDRD = 0xFF;
 	
@@ -446,6 +464,15 @@ int main(void) {
 	OCR0A = 0x80;										// 	About 1000 times per second (1Khz)
 	TIMSK0 |= (1<<OCIE0A);								//	Enable interrupts on compare match A
 
+	// Set up the indicators
+	for (int i = 0; i<kDISPVALUE_COUNT; i++) {
+		// Zero each LED first
+		aintDisplaySegments[i][kDISPVALUE_DIGITCOUNT + i/2] = 0;
+	}
+	for (int i = 0; i<kDISPVALUE_COUNT; i++) {
+		aintDisplaySegments[i][kDISPVALUE_DIGITCOUNT + i/2] |= aintIndicatorSegmentR[i % 2];
+	}
+	
 	// Timer stuff for displaying different temperatures - using timer 1
 	TCNT1  = 0;            				// 	Initial counter value
 	TCCR1A =0x00;						// 	Not connected to any pin, normal operation
@@ -459,7 +486,12 @@ int main(void) {
 	//~ OCR1A   = 2048; 					// 	Refresh once per second 
 	OCR1A   = 8; 						// 	Run this 256 times per second
 	// Number of key timer hits before switch display
+#ifdef SPEEDUP8X	
+	#define KEYTIMER_MAX_DISPLAYUPDATE	2048
+#else SPEEDUP8X	
 	#define KEYTIMER_MAX_DISPLAYUPDATE	256
+#endif SPEEDUP8X	
+	
 	//~ TCCR1B |= (1<<CS11);			// 	Prescaler = 8
 	
 	
@@ -532,20 +564,29 @@ int main(void) {
 
 // Interrupt routine for servicing LED refreshment
 ISR(TIMER0_COMPA_vect) {
-	static uint8_t idxActiveDigit = 1;
+	static uint8_t idxActiveCathode = 1;
 	
 #	ifdef PARALLEL_595
 	sr.setOutput(0);
 #	endif PARALLEL_595
 	uint8_t anData[2];
-	anData[0] = aintDisplaySegments[idxDisplayValue][idxActiveDigit];
-	anData[1] = 1<<(idxActiveDigit + 1);
+	anData[0] = aintDisplaySegments[idxDisplayValue][idxActiveCathode];
+	switch(idxActiveCathode) {
+		case 0: 	{	anData[1] = 1<<2; break;		}
+		case 1: 	{	anData[1] = 1<<3; break;		}
+		case 2: 	{	anData[1] = 1<<4; break;		}
+		case 3: 	{	anData[1] = 1<<6; break;		}
+		case 4: 	{	anData[1] = 1<<5; break;		}
+		case 5: 	{	anData[1] = 1<<7; break;		}
+		default:	{	anData[0] = 0;					}
+	}
+	anData[1] = 1<<(idxActiveCathode + 1);
 	sr.writeData(0, 2, anData);
 #	ifdef PARALLEL_595
 	sr.setOutput(1);
 #	endif PARALLEL_595
-	if (++idxActiveDigit >= kDISPVALUE_DIGITCOUNT) {
-		idxActiveDigit = 0;
+	if (++idxActiveCathode >= kDISPVALUE_CATHODECOUNT) {
+		idxActiveCathode = 0;
 	}
 	
 	return;
