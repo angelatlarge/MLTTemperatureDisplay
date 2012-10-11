@@ -234,12 +234,31 @@ sr595 sr(
 		STCP				// anSTCP
 		);
 
+/////////////////////////////////////////////////////////////////////
+// Keys control
+
+#define kMAX_KEYBOUNCE_CHECKS	8
+#define INPUTS_DIR		DDRB
+#define INPUTS_PORT		PORTB
+#define INPUTS_PIN		PINB
+#define	INPUT_BTNRIGHT		(03<<01)
+#define	INPUT_BTNLEFT		(04<<00)
+#define	INPUT_ENCODERLEFT	(06<<00)
+#define	INPUT_ENCODERRIGHT	(07<<00)
+#define	INPUT_ENCODERBTN	(05<<00)
+#define INPUT_ALL		(INPUT_BTNRIGHT | INPUT_BTNLEFT | INPUT_ENCODERLEFT | INPUT_ENCODERRIGHT | INPUT_ENCODERBTN)
+			uint8_t		aintDebounceState[kMAX_KEYBOUNCE_CHECKS];
+			uint8_t		intKeyState;
+			uint8_t		idxKeyState;
+			uint8_t		nStopValueCycling;
+volatile	uint16_t	idxKeyTimerCount;							// Count of timer 1
+																	// See KEYTIMER_MAX_DISPLAYUPDATE below
 
 /////////////////////////////////////////////////////////////////////
 // Led control
 
 
-#define kDISPVALUE_COUNT				1
+#define kDISPVALUE_COUNT				3
 #define kDISPVALUE_NOVALUEAVAILABLE		0xFFFF
 #define kDISPVALUE_DIGITCOUNT			3
 #define kDISPVALUE_INDPAIRSCOUNT		3
@@ -414,7 +433,6 @@ int main(void) {
 		sr.setOutput(1);
 	}
 	
-	if (1) {
 	/* 	Timer stuff for display PWM - using timer 0
 		Using 8 bit timer because this update happens fast, 
 		the timer does not need to count very high
@@ -428,8 +446,30 @@ int main(void) {
 	OCR0A = 0x80;										// 	About 1000 times per second (1Khz)
 	TIMSK0 |= (1<<OCIE0A);								//	Enable interrupts on compare match A
 
-	sei();								//	Start interrupt handling
+	// Timer stuff for displaying different temperatures - using timer 1
+	TCNT1  = 0;            				// 	Initial counter value
+	TCCR1A =0x00;						// 	Not connected to any pin, normal operation
+	TCCR1B |= (1<<WGM12);				// 	CTC (Clear on capture = comparison) mode, 
+										// 	OCR1A compare ONLY
+	TIMSK1 |= (1<<OCIE1A);				//	Enable timer interrupts
+	//~ OCR1A=F_CPU/64;					/* 	Refresh every second
+										//	F_CPU/64 = 15625 at 1Mhz
+	//~ OCR1A=F_CPU/1024;				// 	Refresh every second
+	TCCR1B |= (1<<CS12)|(1<<CS10);		// 	Prescaler = 1024
+	//~ OCR1A   = 2048; 					// 	Refresh once per second 
+	OCR1A   = 8; 						// 	Run this 256 times per second
+	// Number of key timer hits before switch display
+	#define KEYTIMER_MAX_DISPLAYUPDATE	256
+	//~ TCCR1B |= (1<<CS11);			// 	Prescaler = 8
+	
+	
+	// Set up the inputs
+	idxKeyState = 0;
+	for (int i=0; i<kMAX_KEYBOUNCE_CHECKS; i++) {
+		aintDebounceState[i] = INPUT_ALL;
 	}
+	
+	sei();								//	Start interrupt handling
 	
 	uint16_t nDisplayValue = 0; 
 	uint16_t nDispCounter = 0;
@@ -440,7 +480,9 @@ int main(void) {
 	//~ _delay_ms(1000);
 	//~ setDisplayValue(0, 223);
 	//~ _delay_ms(1000);
-	setDisplayValue(0, 232);
+	setDisplayValue(0, 123);
+	setDisplayValue(1, 216);
+	setDisplayValue(2, 40);
 	//~ _delay_ms(1000);
 	
     //~ stdout = &uart_output;
@@ -492,13 +534,6 @@ int main(void) {
 ISR(TIMER0_COMPA_vect) {
 	static uint8_t idxActiveDigit = 1;
 	
-	// Turn off all LEDs
-//~ #	ifdef PARALLEL_595
-	//~ sr.setOutput(0);
-	//~ sr.writeByte(0, aintDisplaySegments[idxDisplayValue][idxActiveDigit]);
-	//~ sr.writeByte(1, 1<<(idxActiveDigit + 1));
-	//~ sr.setOutput(1);
-//~ #	else PARALLEL_595
 #	ifdef PARALLEL_595
 	sr.setOutput(0);
 #	endif PARALLEL_595
@@ -515,6 +550,68 @@ ISR(TIMER0_COMPA_vect) {
 	
 	return;
 }
+
+
+ISR(TIMER1_COMPA_vect) {
+/*
+	Services display update and key reading
+*/	
+	
+	
+	// Do reading of keys here
+	aintDebounceState[idxKeyState] = INPUTS_PIN & INPUT_ALL;
+	if (++idxKeyState >= kMAX_KEYBOUNCE_CHECKS) {
+		idxKeyState=0;
+	}
+	
+	// Debounce data
+	uint8_t i, intAccAND, intAccOR;
+	intAccAND = 0xFF;
+	intAccOR = 0x00;
+	for (i=0; i<kMAX_KEYBOUNCE_CHECKS; i++) {
+		intAccAND &= aintDebounceState[i];
+		intAccOR  |= aintDebounceState[i];
+	}
+	uint8_t intNewKeyState = intKeyState;
+	uint8_t nDeboundedBitMask = ~(intAccAND ^ intAccOR); 	// The bits intAccAND and intAccOR agree on are deboundeced
+	intNewKeyState &= ~nDeboundedBitMask; 					// Clear the bits that are debounced
+	intNewKeyState |= (intAccAND & nDeboundedBitMask); 		// Set the debounced bits
+	uint8_t nChangedBits = intNewKeyState ^ intKeyState;
+	if (nChangedBits) {
+		// Bits changed
+		
+		uint8_t nNextValue = 0;
+		
+		if ( (nChangedBits & INPUT_BTNRIGHT) && ((intNewKeyState & INPUT_BTNRIGHT) == 0) ) {
+			// Right key pressed
+			nNextValue = 1;
+		}
+		if ( (nChangedBits & INPUT_BTNLEFT) && ((intNewKeyState & INPUT_BTNLEFT) == 0) ) {
+			// Left key pressed
+			nStopValueCycling = nStopValueCycling ^ 0x01;
+			if (!nStopValueCycling) nNextValue = 1;
+		}
+		
+		if (nNextValue) {
+			idxKeyTimerCount = 0;
+			if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
+				idxDisplayValue = 0;
+			}
+		}
+		intKeyState = intNewKeyState;
+	}
+	
+	// Process display update
+	if (nStopValueCycling == 0) {
+		if (++idxKeyTimerCount >= KEYTIMER_MAX_DISPLAYUPDATE) {
+			idxKeyTimerCount = 0;
+			if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
+				idxDisplayValue = 0;
+			}
+		}
+	}
+}
+
 
 ISR(RESET) {
 	nResetting = 0xFF;
