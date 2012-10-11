@@ -40,6 +40,9 @@
 
 uint8_t aint7segdigits[] = {LED7OUT_0, LED7OUT_1,LED7OUT_2,LED7OUT_3,LED7OUT_4,LED7OUT_5,LED7OUT_6,LED7OUT_7,LED7OUT_8,LED7OUT_9};
 
+/////////////////////////////////////////////////////////////////////
+// SR595
+
 #define SR74XX595_PORT	PORTD
 #define SR74XX595_DS	02
 #define SR74XX595_SHCP	05
@@ -47,13 +50,24 @@ uint8_t aint7segdigits[] = {LED7OUT_0, LED7OUT_1,LED7OUT_2,LED7OUT_3,LED7OUT_4,L
 #define SR74XX595_OE	03
 #define SR74XX595_STCP1	06
 
-
+#ifdef BTH_USE_PINKEY
+#define BTH_PINKEY_DDR	DDRD
+#define BTH_PINKEY_PORT	PORTD
+#define BTH_PINKEY_PIN	1<<7
+#endif
+#define BTH_USE_POWER
+#ifdef BTH_USE_POWER
+#define BTH_POWER_DDR	DDRB
+#define BTH_POWER_PORT	PORTB
+#define BTH_POWER_PIN	1<<0
+#endif 
 class sr595
 {
 	public:
 		sr595(uint8_t nCascadeCount, uint8_t fParallel, volatile uint8_t *ptrPort, uint8_t nOE, uint8_t nDS, uint8_t nSHCP, uint8_t anSTCP[]);
 		~sr595();
-		void writeByte(uint8_t nIndex, uint8_t nData);				
+		void writeByte(uint8_t nIndex, uint8_t nData);	
+		void writeData(uint8_t nStartIndex, uint8_t nCount, uint8_t anData[]);	
 	protected:
 		uint8_t m_nCascadeCount;
 		volatile uint8_t *m_ptrPort;
@@ -163,21 +177,59 @@ void sr595::writeByte(uint8_t nIndex, uint8_t nData)
 	
 }
 
+void sr595::writeData(uint8_t nStartIndex, uint8_t nCount, uint8_t anData[])
+{
+	if (m_fParallel) {
+	} else {
+		for (int nByte = nStartIndex + nCount - 1; nByte >=nStartIndex ; nByte--) {
+			if (m_anData[nByte] != anData[nByte-nStartIndex]) {
+				m_anData[nByte] = anData[nByte-nStartIndex];
+				for (int nBit=7; nBit>=0; nBit--) {
+					SHCP_LO();
+					if (m_anData[nByte] & (0x01 << nBit)) {
+						DS_HI();
+					} else {
+						DS_LO();
+					}
+					SHCP_HI();
+				}
+			}
+		}
+		for (int nByte = nStartIndex + nCount - 1; nByte >=nStartIndex ; nByte--) {
+			STCP_HI(nByte);
+		}		
+		SHCP_LO();
+		for (int nByte = nStartIndex + nCount - 1; nByte >=nStartIndex ; nByte--) {
+			STCP_LO(nByte);
+		}		
+	}
+}
+
+
 #define DELAY_LONG	1000
 #define DO_SHORT_DELAY	_delay_ms(250)
 //~ #define DO_SHORT_DELAY	;
 	
 uint8_t STCP[2] = {SR74XX595_STCP0, SR74XX595_STCP1};
-
+#define PARALLEL_595
 sr595 sr(
 		2, 					// nCascadeCount
+#		ifdef PARALLEL_595
 		1, 					// fParallel
-		&SR74XX595_PORT, 	// ptrPort
+#		else PARALLEL_595
+		0, 					// fParallel
+#		endif PARALLEL_595
+		&SR74XX595_PORT,        // ptrPort
 		SR74XX595_OE, 		// nOE
 		SR74XX595_DS, 		// nDS
 		SR74XX595_SHCP, 	// nSHCP
 		STCP				// anSTCP
 		);
+
+
+/////////////////////////////////////////////////////////////////////
+// Led control
+
 
 #define kDISPVALUE_COUNT				1
 #define kDISPVALUE_NOVALUEAVAILABLE		0xFFFF
@@ -188,6 +240,7 @@ volatile	uint16_t	aintDisplayValue[kDISPVALUE_COUNT];  				// 	Value to be displ
 volatile	uint8_t		idxDisplayValue = 0;
 volatile	uint8_t		aintDisplaySegments[kDISPVALUE_COUNT][kDISPVALUE_DIGITCOUNT+kDISPVALUE_INDPAIRSCOUNT];  // 	Value to be displayed on each led
 volatile	uint8_t		nResetting;
+
 
 void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 	if (nResetting) { return; }
@@ -216,6 +269,7 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 		}
 	}
 }
+
 
 
 //~ #include "uart.h"
@@ -297,6 +351,43 @@ int uart_getChar(FILE *stream) {
 // Main
 
 int main(void) {
+	//~ _delay_ms(1000);							// Wait a bit for bluetooth module to power up
+	// Set up the bluetooth
+
+	/* Set up the serial comm */
+	uart_out = fdevopen(uart_putChar, uart_getChar);
+	stdout = stdin = uart_out;
+    uart_init();
+	
+#ifdef BTH_USE_POWER
+	BTH_POWER_DDR  	|= BTH_POWER_PIN;
+	//~ BTH_POWER_PORT 	|= 0;							// Turn off everything on that port
+#endif 
+#	ifdef BTH_USE_PINKEY	
+	BTH_PINKEY_DDR 	|= BTH_PINKEY_PIN;				// Make the key pin output
+	BTH_PINKEY_PORT &= ~(BTH_PINKEY_PIN);			// Set the key pin low
+	//~ BTH_PINKEY_PORT |= BTH_PINKEY_PIN;			// Set the key pin high
+#	endif	
+	//~ _delay_ms(1500);							// Wait a bit for everything to clear
+#ifdef BTH_USE_POWER
+	BTH_POWER_PORT 	|= BTH_POWER_PIN;				// Power up the bluetooth module
+#endif
+	if (0) {
+		// Set the name of the device
+		fputs ("AT+NAMETemp-o-matic", stdout);
+		_delay_ms(1500);
+		// Set device password
+		fputs ("AT+PIN1234", stdout);
+		_delay_ms(1500);
+	}		
+#	ifdef BTH_USE_PINKEY	
+	BTH_PINKEY_PORT |= BTH_PINKEY_PIN;			// Set the key pin high
+#endif
+#	ifdef BTH_USE_PINKEY	
+	_delay_ms(1500);
+	//~ BTH_PINKEY_PORT &= ~(BTH_PINKEY_PIN);	// Lower the key line to make bluetooth transparent
+#endif
+	
 	// Run at 8mhz
 	//~ CLKPR = 1<<CLKPCE;
 	//~ CLKPR = 0;
@@ -333,7 +424,7 @@ int main(void) {
 	}
 	
 	uint16_t nDisplayValue = 0; 
-	
+	uint16_t nDispCounter = 0;
 	
 	//~ setDisplayValue(0, 232);
 	//~ _delay_ms(1000);
@@ -344,24 +435,19 @@ int main(void) {
 	setDisplayValue(0, 232);
 	//~ _delay_ms(1000);
 	
-//FILE uart_out = FDEV_SETUP_STREAM(uart_putChar, NULL, _FDEV_SETUP_WRITE);
-	uart_out = fdevopen(uart_putChar, uart_getChar);
-	stdout = stdin = uart_out;
-	
-	//~ FILE uart_output = FDEV_SETUP_STREAM(uart_putchar, NULL, _FDEV_SETUP_WRITE);
-	//~ FILE uart_input = FDEV_SETUP_STREAM(NULL, uart_getchar, _FDEV_SETUP_READ);
-    uart_init();
     //~ stdout = &uart_output;
     //~ stdin  = &uart_input;
-	puts("Hello world!\n");
+	//~ puts("Hello world!\n");
 	
 	
-	while (0) {
-		char strNumber[10];
-		puts("Hello, world");//, nDisplayValue++);
-		_delay_ms(1000);
-		nDisplayValue++;
-	}
+	//~ while (0) {
+		//~ char strNumber[10];
+		//~ puts("AT+NAMEtempar");
+		//~ fputs ("AT+NAMEtempar", stdout)	;
+		//~ puts ("Hello, world");
+		//~ _delay_ms(3000);
+		//~ nDisplayValue++;
+	//~ }
 	
 	while (1) {
 		// Just count up
@@ -370,6 +456,10 @@ int main(void) {
 		_delay_ms(100);
 		if ( ++nDisplayValue > 999) {
 			nDisplayValue = 0;
+		}
+		if (++nDispCounter > 20) {
+			fputs ("Hello, world", stdout)	;
+			nDispCounter=0;
 		}
 		//~ sr.setOutput(1);
 		//~ while(1) {
@@ -391,11 +481,18 @@ ISR(TIMER0_COMPA_vect) {
 	static uint8_t idxActiveDigit = 1;
 	
 	// Turn off all LEDs
+#	ifdef PARALLEL_595
 	sr.setOutput(0);
 	sr.writeByte(0, aintDisplaySegments[idxDisplayValue][idxActiveDigit]);
 	sr.writeByte(1, 1<<(idxActiveDigit + 1));
 	sr.setOutput(1);
-	
+#	else PARALLEL_595
+	uint8_t anData[2];
+	anData[0] = aintDisplaySegments[idxDisplayValue][idxActiveDigit];
+	anData[1] = 1<<(idxActiveDigit + 1);
+	sr.writeData(0, 2, anData);
+	sr.setOutput(1);
+#	endif PARALLEL_595
 	if (++idxActiveDigit >= kDISPVALUE_DIGITCOUNT) {
 		idxActiveDigit = 0;
 	}
