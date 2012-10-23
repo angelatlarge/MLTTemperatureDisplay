@@ -186,10 +186,10 @@ REMOVE=rm -f
 
 ##### avrdude options ####
 AVRDUDE_CONF = C:\\cygwin\\home\\kirill\\arduino\\arduino-1.0\\hardware\\tools\\avr\\etc\\avrdude.conf
-ifndef MCU_DUDE
-MCU_DUDE=$(MCU)
+ifndef PROGRAMMER_MCU
+PROGRAMMER_MCU=$(MCU)
 endif
-AVRDUDE_COM_OPTS = -p $(MCU_DUDE)
+AVRDUDE_COM_OPTS = -p $(PROGRAMMER_MCU)
 ifdef AVRDUDE_CONF
 AVRDUDE_COM_OPTS += -C $(AVRDUDE_CONF)
 endif

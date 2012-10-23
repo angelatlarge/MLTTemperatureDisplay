@@ -110,11 +110,11 @@ sr595 sr(
 #define INPUTS_DIR		DDRB
 #define INPUTS_PORT		PORTB
 #define INPUTS_PIN		PINB
-#define	INPUT_BTNRIGHT		(03<<01)
-#define	INPUT_BTNLEFT		(04<<00)
-#define	INPUT_ENCODERLEFT	(06<<00)
-#define	INPUT_ENCODERRIGHT	(07<<00)
-#define	INPUT_ENCODERBTN	(05<<00)
+#define	INPUT_BTNRIGHT		(01<<03)
+#define	INPUT_BTNLEFT		(01<<04)
+#define	INPUT_ENCODERLEFT	(01<<06)
+#define	INPUT_ENCODERRIGHT	(01<<07)
+#define	INPUT_ENCODERBTN	(01<<05)
 #define INPUT_ALL		(INPUT_BTNRIGHT | INPUT_BTNLEFT | INPUT_ENCODERLEFT | INPUT_ENCODERRIGHT | INPUT_ENCODERBTN)
 			uint8_t		aintDebounceState[kMAX_KEYBOUNCE_CHECKS];
 			uint8_t		intKeyState;
@@ -137,6 +137,7 @@ volatile	uint16_t	aintDisplayValue[kDISPVALUE_COUNT];  				// 	Value to be displ
 volatile	uint8_t		idxDisplayValue = 0;
 volatile	uint8_t		aintDisplaySegments[kDISPVALUE_COUNT][kDISPVALUE_CATHODECOUNT];  // 	Value to be displayed on each led
 volatile	uint8_t		nResetting;
+volatile	uint8_t 	idxActiveCathode = 0;
 
 
 void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
@@ -250,6 +251,7 @@ int uart_getChar(FILE *stream) {
 int main(void) {
 
 	sr.setOutput(0);
+	//~ sr.setOeDisableDuringLoad(1);
 
 	//~ _delay_ms(1000);							// Wait a bit for bluetooth module to power up
 	// Set up the bluetooth
@@ -308,19 +310,19 @@ int main(void) {
 		sr.setOutput(1);
 	}
 	
-	/* 	Timer stuff for display PWM - using timer 0
+	/* 	Timer setup for display PWM - using timer 0
 		Using 8 bit timer because this update happens fast, 
 		the timer does not need to count very high
 	*/
 	TCNT0 = 0;										// 	Initial counter value
 	TCCR0A =(1<<WGM01);								// 	CTC (Clear on capture = comparison) mode
-	TCCR0B = (1<<CS02) | (0<<CS01) | (1<<CS00);		// Prescaler = 1024
+	//~ TCCR0B = (1<<CS02) | (0<<CS01) | (1<<CS00);		// Prescaler = 1024
 	//~ TCCR0B = (1<<CS02) | (0<<CS01) | (0<<CS00);		// Prescaler = 256
 	//~ TCCR0B = (1<CS02) | (0<<CS01) | (1<<CS00);		// Prescaler = 8
-	//~ TCCR0B = (0<CS02) | (1<<CS01) | (1<<CS00);		// Prescaler = 8
+	TCCR0B = (0<CS02) | (1<<CS01) | (1<<CS00);		// Prescaler = 8
 	//~ OCR0A = F_CPU/1024/1000;						// 	Refresh every second
-	OCR0A = 0x80;										// 	About 1000 times per second (1Khz)
-	OCR0A = 0xFF;										// 	About 1000 times per second (1Khz)
+	OCR0A = 0x20;										// 	About 1000 times per second (1Khz)
+	//~ OCR0A = 0xFF;										// 	About 1000 times per second (1Khz)
 	TIMSK0 |= (1<<OCIE0A);								//	Enable interrupts on compare match A
 
 	// Set up the outputs
@@ -330,11 +332,11 @@ int main(void) {
 		}
 	}
 	for (int idxDisplayValue = 0; idxDisplayValue<kDISPVALUE_COUNT; idxDisplayValue++) {
-		//~ aintDisplaySegments[idxDisplayValue][kDISPVALUE_DIGITCOUNT + idxDisplayValue>>1] = aintIndicatorSegmentR[idxDisplayValue % 2];
-		//~ aintDisplaySegments[idxDisplayValue][kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1)] = aintIndicatorSegmentR[0];
+		aintDisplaySegments[idxDisplayValue][kDISPVALUE_DIGITCOUNT + idxDisplayValue>>1] = aintIndicatorSegmentR[idxDisplayValue % 2];
+		aintDisplaySegments[idxDisplayValue][kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1)] = aintIndicatorSegmentR[0];
 	}
 	
-	// Timer stuff for displaying different temperatures - using timer 1
+	// Timer setup for displaying different temperatures and reading keys - using timer 1
 	TCNT1  = 0;            				// 	Initial counter value
 	TCCR1A =0x00;						// 	Not connected to any pin, normal operation
 	TCCR1B |= (1<<WGM12);				// 	CTC (Clear on capture = comparison) mode, 
@@ -352,14 +354,19 @@ int main(void) {
 #else SPEEDUP8X	
 	#define KEYTIMER_MAX_DISPLAYUPDATE	256
 #endif SPEEDUP8X	
-	
 	//~ TCCR1B |= (1<<CS11);			// 	Prescaler = 8
 	
 	
 	// Set up the inputs
+	// ... Initialize reading direction
+	INPUTS_DIR &= ~(INPUT_ALL);
+	// ... Initialize pullup resistors
+	INPUTS_PORT |=  INPUT_ALL;
+	// ... Initialize the debouncing structure
 	idxKeyState = 0;
 	for (int i=0; i<kMAX_KEYBOUNCE_CHECKS; i++) {
-		aintDebounceState[i] = INPUT_ALL;
+		aintDebounceState[i] = INPUT_ALL;				// Inputs are high by default, 
+														// so set them up to be high
 	}
 	
 	sei();								//	Start interrupt handling
@@ -390,7 +397,7 @@ int main(void) {
 		nDisplayValue++;
 	}
 	
-	while (1) {
+	while (0) {
 		// Just count up
 
 		setDisplayValue(0, nDisplayValue);
@@ -421,12 +428,13 @@ int main(void) {
 
 // Interrupt routine for servicing LED refreshment
 ISR(TIMER0_COMPA_vect) {
-	static uint8_t idxActiveCathode = 1;
+	//~ static uint8_t idxActiveCathode = 1;
 	
 #	ifdef PARALLEL_595
 	sr.setOutput(0);
 #	endif PARALLEL_595
 	uint8_t anData[2];
+	// anData[0] is the anodes
 	anData[0] = aintDisplaySegments[idxDisplayValue][idxActiveCathode];
 	uint8_t nCathodeVal; 
 	switch(idxActiveCathode) {
@@ -438,8 +446,8 @@ ISR(TIMER0_COMPA_vect) {
 		case 5: 	{	(nCathodeVal) = 1<<7; break;		}
 		default:	{	(nCathodeVal) = 0;					}
 	}
+	// anData[0] is the cathodes
 	anData[1] = nCathodeVal;
-	//~ anData[1] = 1<<(idxActiveCathode + 1);
 	sr.writeData(0, 2, anData);
 	sr.setOutput(1);
 	if (++idxActiveCathode >= kDISPVALUE_CATHODECOUNT) {
@@ -478,24 +486,28 @@ ISR(TIMER1_COMPA_vect) {
 	if (nChangedBits) {
 		// Bits changed
 		
-		uint8_t nNextValue = 0;
-		
+			uint8_t nGotoNextValue = 0;
+			
 		if ( (nChangedBits & INPUT_BTNRIGHT) && ((intNewKeyState & INPUT_BTNRIGHT) == 0) ) {
 			// Right key pressed
-			nNextValue = 1;
+			nGotoNextValue = 1;
+			if (++idxActiveCathode >= kDISPVALUE_CATHODECOUNT) {
+				idxActiveCathode = 0;
+			}
 		}
 		if ( (nChangedBits & INPUT_BTNLEFT) && ((intNewKeyState & INPUT_BTNLEFT) == 0) ) {
 			// Left key pressed
 			nStopValueCycling = nStopValueCycling ^ 0x01;
-			if (!nStopValueCycling) nNextValue = 1;
+			if (!nStopValueCycling) nGotoNextValue = 1;
 		}
 		
-		if (nNextValue) {
+		if (nGotoNextValue) {
 			idxKeyTimerCount = 0;
 			if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
 				idxDisplayValue = 0;
 			}
 		}
+		
 		intKeyState = intNewKeyState;
 	}
 	
