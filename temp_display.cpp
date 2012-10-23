@@ -1,4 +1,5 @@
 #define SPEEDUP8X
+#undef SPEEDUP8X
 #ifdef SPEEDUP8X
 #define F_CPU 8000000UL /* 1 MHz Internal Oscillator */
 #else
@@ -10,6 +11,7 @@
 #include <util/delay.h>
 #include <util/atomic.h>
 #include <avr/interrupt.h>
+#include "sr595.h"
 //~ #include <math.h>
 
 #define LEDSEG_A	(1<<5)	
@@ -59,6 +61,7 @@ uint8_t aint7segdigits[] = {LED7OUT_0, LED7OUT_1,LED7OUT_2,LED7OUT_3,LED7OUT_4,L
 // SR595
 
 #define SR74XX595_PORT	PORTD
+#define SR74XX595_DDR	DDRD
 #define SR74XX595_DS	02
 #define SR74XX595_SHCP	05
 #define SR74XX595_STCP0	04
@@ -76,157 +79,6 @@ uint8_t aint7segdigits[] = {LED7OUT_0, LED7OUT_1,LED7OUT_2,LED7OUT_3,LED7OUT_4,L
 #define BTH_POWER_PORT	PORTB
 #define BTH_POWER_PIN	1<<0
 #endif 
-class sr595
-{
-	public:
-		sr595(uint8_t nCascadeCount, uint8_t fParallel, volatile uint8_t *ptrPort, uint8_t nOE, uint8_t nDS, uint8_t nSHCP, uint8_t anSTCP[]);
-		~sr595();
-		void writeByte(uint8_t nIndex, uint8_t nData);	
-		void writeData(uint8_t nStartIndex, uint8_t nCount, uint8_t anData[]);	
-	protected:
-		uint8_t m_nCascadeCount;
-		volatile uint8_t *m_ptrPort;
-		uint8_t m_nOE;
-		uint8_t m_nDS;
-		uint8_t m_nSHCP;
-		uint8_t *m_anSTCP;
-		uint8_t *m_anData;
-		uint8_t m_nPortBitMask;
-		uint8_t m_fParallel;
-		uint8_t m_fOutput;
-		void SHCP_LO() 						{	*m_ptrPort &= ~(1<<m_nSHCP);				}
-		void SHCP_HI() 						{	*m_ptrPort |=   1<<m_nSHCP;					}
-		void DS_LO() 						{	*m_ptrPort &= ~(1<<m_nDS);					}
-		void DS_HI() 						{	*m_ptrPort |=   1<<m_nDS;					}
-		void STCP_LO(uint8_t nIndex) 		{	*m_ptrPort &= ~(1<<m_anSTCP[nIndex]);		}
-		void STCP_HI(uint8_t nIndex) 		{	*m_ptrPort |=   1<<m_anSTCP[nIndex];		}
-		void OE_LO() 						{	*m_ptrPort &= ~(1<<m_nOE);					}
-		void OE_HI() 						{	*m_ptrPort |=   1<<m_nOE;					}
-	public:
-		void setOutput(uint8_t nOutput) {
-			if (nOutput != m_fOutput) {
-				if (m_fOutput = nOutput) {				/* Assign AND TEST */
-					OE_LO();
-				} else {
-					OE_HI();
-				}
-			}
-		}
-		void toggleOutput() {
-			if (m_fOutput = (m_fOutput != 0) ^ 1) {	
-				OE_LO();
-			} else {
-				OE_HI();
-			}
-		}
-		
-};
-
-sr595::sr595(uint8_t nCascadeCount, uint8_t fParallel, volatile uint8_t *ptrPort, uint8_t nOE, uint8_t nDS, uint8_t nSHCP, uint8_t anSTCP[])
-{
-	m_nCascadeCount	= nCascadeCount;
-	m_ptrPort		= ptrPort;
-	m_nOE			= nOE;
-	m_nDS			= nDS;
-	m_nSHCP			= nSHCP;
-	m_anSTCP 		= (uint8_t *)malloc(nCascadeCount);
-	memcpy(m_anSTCP, anSTCP, nCascadeCount);
-	m_fParallel 	= fParallel;
-	m_anData 		= (uint8_t *)malloc(nCascadeCount);
-	
-	// Set the port to output
-	/* Here I am assuming that the DDR_ address is always one less than the port itself */ 
-	m_nPortBitMask = 0;
-	m_nPortBitMask = m_nOE | m_nDS | m_nSHCP;
-	for (int i=0; i<m_nCascadeCount; i++) {
-		m_nPortBitMask |= m_anSTCP[i];
-	}
-	_SFR_IO8(ptrPort-1) = m_nPortBitMask;
-	// Write zeros to all port values
-	*m_ptrPort &= 0x00 | (~m_nPortBitMask);
-	
-	// Disable output
-	OE_HI();
-	
-/*	
-#define DDRC 
-#define PORTC _SFR_IO8(0x15)
-
-#define PORTD _SFR_IO8(0x12)
-#define DDRD _SFR_IO8(0x11)
-
-#define DDRB _SFR_IO8(0x17)
-*/	
-	// Assume shift registers read all zeros
-	for (int i=0; i<m_nCascadeCount; i++) {
-		m_anData[i]=0;
-	}
-	
-}
-
-sr595::~sr595() {
-	free(m_anSTCP);
-}
-		
-
-void sr595::writeByte(uint8_t nIndex, uint8_t nData)
-{
-	if (m_anData[nIndex] != nData) {
-		m_anData[nIndex] = nData;
-		for (int nByte = nIndex; nByte>=0; nByte--) {
-			for (int nBit=7; nBit>=0; nBit--) {
-				SHCP_LO();
-				if (m_anData[nByte] & (0x01 << nBit)) {
-					DS_HI();
-				} else {
-					DS_LO();
-				}
-				SHCP_HI();
-			}
-			if (m_fParallel) { break; }
-		}
-		STCP_HI(nIndex);
-		SHCP_LO();
-		STCP_LO(nIndex);		
-	}
-	
-}
-
-void sr595::writeData(uint8_t nStartIndex, uint8_t nCount, uint8_t anData[])
-{
-	uint8_t fSentEarlier = 0;
-	for (int nByte = nStartIndex + nCount - 1; nByte >=0 ; nByte--) {
-		if (fSentEarlier || (m_anData[nByte] != anData[nByte-nStartIndex])) {
-			fSentEarlier = 1;
-			m_anData[nByte] = anData[nByte-nStartIndex];
-			for (int nBit=7; nBit>=0; nBit--) {
-				SHCP_LO();
-				if (m_anData[nByte] & (0x01 << nBit)) {
-					DS_HI();
-				} else {
-					DS_LO();
-				}
-				SHCP_HI();
-			}
-			
-			if (m_fParallel) {
-				STCP_HI(nByte);
-				SHCP_LO();
-				STCP_LO(nByte);		
-				if (nByte <=nStartIndex) break;
-			}
-		}
-	}
-	if (!m_fParallel) {
-		for (int nByte = nStartIndex + nCount - 1; nByte >=nStartIndex ; nByte--) {
-			STCP_HI(nByte);
-		}		
-		SHCP_LO();
-		for (int nByte = nStartIndex + nCount - 1; nByte >=nStartIndex ; nByte--) {
-			STCP_LO(nByte);
-		}		
-	}
-}
 
 
 #define DELAY_LONG	1000
@@ -243,11 +95,13 @@ sr595 sr(
 		0, 					// fParallel
 #		endif PARALLEL_595
 		&SR74XX595_PORT,        // ptrPort
+		&SR74XX595_DDR,        // ptrDir
 		SR74XX595_OE, 		// nOE
 		SR74XX595_DS, 		// nDS
 		SR74XX595_SHCP, 	// nSHCP
 		STCP				// anSTCP
 		);
+
 
 /////////////////////////////////////////////////////////////////////
 // Keys control
@@ -394,6 +248,9 @@ int uart_getChar(FILE *stream) {
 // Main
 
 int main(void) {
+
+	sr.setOutput(0);
+
 	//~ _delay_ms(1000);							// Wait a bit for bluetooth module to power up
 	// Set up the bluetooth
 
@@ -440,9 +297,9 @@ int main(void) {
 	DDRD = 0xFF;
 	
 	
-	sr.writeByte(1, 0xFF);	// Enable all common cathodes
-	sr.writeByte(0, 0xFF);	// Nothing is on
-	sr.setOutput(1);
+	//~ sr.writeByte(1, 0xFF);	// Enable all common cathodes
+	//~ sr.writeByte(0, 0xFF);	// Nothing is on
+	//~ sr.setOutput(1);
 	
 	while (0) {
 		sr.writeByte(1, 1<<3);	// Enable all common cathodes
@@ -457,20 +314,24 @@ int main(void) {
 	*/
 	TCNT0 = 0;										// 	Initial counter value
 	TCCR0A =(1<<WGM01);								// 	CTC (Clear on capture = comparison) mode
-	//~ TCCR0B = (1<<CS02) | (0<<CS01) | (1<<CS00);		// Prescaler = 1024
+	TCCR0B = (1<<CS02) | (0<<CS01) | (1<<CS00);		// Prescaler = 1024
 	//~ TCCR0B = (1<<CS02) | (0<<CS01) | (0<<CS00);		// Prescaler = 256
-	TCCR0B = (0<CS02) | (1<<CS01) | (1<<CS00);		// Prescaler = 8
+	//~ TCCR0B = (1<CS02) | (0<<CS01) | (1<<CS00);		// Prescaler = 8
+	//~ TCCR0B = (0<CS02) | (1<<CS01) | (1<<CS00);		// Prescaler = 8
 	//~ OCR0A = F_CPU/1024/1000;						// 	Refresh every second
 	OCR0A = 0x80;										// 	About 1000 times per second (1Khz)
+	OCR0A = 0xFF;										// 	About 1000 times per second (1Khz)
 	TIMSK0 |= (1<<OCIE0A);								//	Enable interrupts on compare match A
 
-	// Set up the indicators
+	// Set up the outputs
 	for (int i = 0; i<kDISPVALUE_COUNT; i++) {
-		// Zero each LED first
-		aintDisplaySegments[i][kDISPVALUE_DIGITCOUNT + i/2] = 0;
+		for (int j = 0; j<kDISPVALUE_CATHODECOUNT; j++) {
+			aintDisplaySegments[i][j] = 0;
+		}
 	}
-	for (int i = 0; i<kDISPVALUE_COUNT; i++) {
-		aintDisplaySegments[i][kDISPVALUE_DIGITCOUNT + i/2] |= aintIndicatorSegmentR[i % 2];
+	for (int idxDisplayValue = 0; idxDisplayValue<kDISPVALUE_COUNT; idxDisplayValue++) {
+		//~ aintDisplaySegments[idxDisplayValue][kDISPVALUE_DIGITCOUNT + idxDisplayValue>>1] = aintIndicatorSegmentR[idxDisplayValue % 2];
+		//~ aintDisplaySegments[idxDisplayValue][kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1)] = aintIndicatorSegmentR[0];
 	}
 	
 	// Timer stuff for displaying different temperatures - using timer 1
@@ -506,32 +367,28 @@ int main(void) {
 	uint16_t nDisplayValue = 0; 
 	uint16_t nDispCounter = 0;
 	
-	//~ setDisplayValue(0, 232);
-	//~ _delay_ms(1000);
-	//~ setDisplayValue(0, 233);
-	//~ _delay_ms(1000);
-	//~ setDisplayValue(0, 223);
-	//~ _delay_ms(1000);
-	setDisplayValue(0, 123);
-	setDisplayValue(1, 216);
-	setDisplayValue(2, 40);
-	//~ _delay_ms(1000);
+    setDisplayValue(0, 123);
+    setDisplayValue(1, 216);
+    setDisplayValue(2, 40);
 	
-    //~ stdout = &uart_output;
-    //~ stdin  = &uart_input;
-	//~ puts("Hello world!\n");
+	//~ _delay_ms(1000);
+	//~ uint8_t anData[2];
+	//~ anData[0] = aintIndicatorSegmentB[1]|aintIndicatorSegmentB[0];
+	//~ anData[1] = 0x40;
+	//~ sr.writeData(0, 2, anData);
+	//~ sr.setOutput(1);
 	
 	
-	//~ while (0) {
-		//~ char strNumber[10];
-		//~ puts("AT+NAMEtempar");
-		//~ fputs ("AT+NAMEtempar", stdout)	;
-		//~ puts ("Hello, world");
-		//~ _delay_ms(3000);
-		//~ nDisplayValue++;
+	//~ while(1) {
 	//~ }
-	
-	setDisplayValue(0, 123);
+	while (0) {
+		char strNumber[10];
+		puts("AT+NAMEtempar");
+		fputs ("AT+NAMEtempar", stdout)	;
+		puts ("Hello, world");
+		_delay_ms(3000);
+		nDisplayValue++;
+	}
 	
 	while (1) {
 		// Just count up
@@ -571,20 +428,20 @@ ISR(TIMER0_COMPA_vect) {
 #	endif PARALLEL_595
 	uint8_t anData[2];
 	anData[0] = aintDisplaySegments[idxDisplayValue][idxActiveCathode];
+	uint8_t nCathodeVal; 
 	switch(idxActiveCathode) {
-		case 0: 	{	anData[1] = 1<<2; break;		}
-		case 1: 	{	anData[1] = 1<<3; break;		}
-		case 2: 	{	anData[1] = 1<<4; break;		}
-		case 3: 	{	anData[1] = 1<<6; break;		}
-		case 4: 	{	anData[1] = 1<<5; break;		}
-		case 5: 	{	anData[1] = 1<<7; break;		}
-		default:	{	anData[0] = 0;					}
+		case 0: 	{	(nCathodeVal) = 1<<1; break;		}
+		case 1: 	{	(nCathodeVal) = 1<<2; break;		}
+		case 2: 	{	(nCathodeVal) = 1<<3; break;		}
+		case 3: 	{	(nCathodeVal) = 1<<6; break;		}
+		case 4: 	{	(nCathodeVal) = 1<<5; break;		}
+		case 5: 	{	(nCathodeVal) = 1<<7; break;		}
+		default:	{	(nCathodeVal) = 0;					}
 	}
-	anData[1] = 1<<(idxActiveCathode + 1);
+	anData[1] = nCathodeVal;
+	//~ anData[1] = 1<<(idxActiveCathode + 1);
 	sr.writeData(0, 2, anData);
-#	ifdef PARALLEL_595
 	sr.setOutput(1);
-#	endif PARALLEL_595
 	if (++idxActiveCathode >= kDISPVALUE_CATHODECOUNT) {
 		idxActiveCathode = 0;
 	}
@@ -654,10 +511,10 @@ ISR(TIMER1_COMPA_vect) {
 }
 
 
-ISR(RESET) {
-	nResetting = 0xFF;
-	// Shut down the display
-	for (int i=0;i<kDISPVALUE_COUNT;i++) 
-		for (int j=0;j<kDISPVALUE_DIGITCOUNT+kDISPVALUE_INDPAIRSCOUNT;j++) 
-			aintDisplaySegments[i][j] = 0;
-}
+//~ ISR(RESET) {
+	//~ nResetting = 0xFF;
+	//~ // Shut down the display
+	//~ for (int i=0;i<kDISPVALUE_COUNT;i++) 
+		//~ for (int j=0;j<kDISPVALUE_DIGITCOUNT+kDISPVALUE_INDPAIRSCOUNT;j++) 
+			//~ aintDisplaySegments[i][j] = 0;
+//~ }
