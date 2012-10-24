@@ -105,6 +105,7 @@ sr595 sr(
 
 /////////////////////////////////////////////////////////////////////
 // Keys control
+#define TIMER1_OCR1A_FPU_DIV	175680
 
 #define kMAX_KEYBOUNCE_CHECKS	8
 #define INPUTS_DIR		DDRB
@@ -120,14 +121,24 @@ sr595 sr(
 			uint8_t		intKeyState;
 			uint8_t		idxKeyState;
 			uint8_t		nStopValueCycling;
-volatile	uint16_t	idxKeyTimerCount;							// Count of timer 1
+			
+/////////////////////////////////////////////////////////////////////
+// Other low-res timer stuff
+
+// Value cycling
+volatile	uint16_t	nValueCycleCount;							// Count of for the purposes of value cycling
 #define KEYTIMER_MAX_VALUECYCLE	258									// Update the display every 1.5 seconds
+
+volatile	uint32_t	nTimingCount;								// Count for the purposes of displaying a timer
+			uint16_t	nDisplayMinuteTimer; 
+			uint8_t		nMinuteTimerDot; 
 
 /////////////////////////////////////////////////////////////////////
 // Led control
 
 
 #define kDISPVALUE_COUNT				6
+#define kIDXDISPVALUE_TIMER				5
 #define kDISPVALUE_NOVALUEAVAILABLE		0xFFFF
 #define kDISPVALUE_DIGITCOUNT			3
 #define kDISPVALUE_INDPAIRSCOUNT		3
@@ -245,6 +256,20 @@ int uart_getChar(FILE *stream) {
     return UDR0;
 }
 
+
+//////////////////////////////////////////////
+// Main
+void setIndicator(uint8_t idxDisplayValue, uint8_t idxIndicatorLed, uint8_t R, uint8_t G, uint8_t B) {
+	uint8_t nCathode = kDISPVALUE_DIGITCOUNT + (idxIndicatorLed>>1);
+	aintDisplaySegments[idxDisplayValue][nCathode] = 
+			(R ? aintIndicatorSegmentR[idxIndicatorLed % 2] : 0)
+		| 
+			(G ? aintIndicatorSegmentG[idxIndicatorLed % 2] : 0)
+		| 
+			(B ? aintIndicatorSegmentB[idxIndicatorLed % 2] : 0)
+	;
+}
+
 //////////////////////////////////////////////
 // Main
 
@@ -333,10 +358,11 @@ int main(void) {
 			aintDisplaySegments[i][j] = 0;
 		}
 	}
+	
 	// Set the indicators
+	
 	for (int idxDisplayValue = 0; idxDisplayValue<kDISPVALUE_COUNT; idxDisplayValue++) {
-		uint8_t nCathode = kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1);
-		aintDisplaySegments[idxDisplayValue][nCathode] = aintIndicatorSegmentG[idxDisplayValue % 2];
+		setIndicator(idxDisplayValue, idxDisplayValue, 0, 1, 0);
 	}
 	
 	/* 	Low res timebase - using timer 1
@@ -366,9 +392,8 @@ int main(void) {
 		If we are doing 8 debounce checks, 
 		then the debouncing will occur within 50ms
 	*/
-	OCR1A = F_CPU / 175680;
-	
-	
+	OCR1A = F_CPU / TIMER1_OCR1A_FPU_DIV;
+		
 	// Timer setup for speaker
 	DDRB |= 1<<3;
 	//~ DDR_OC2 = 0xFF;
@@ -557,14 +582,12 @@ ISR(TIMER1_COMPA_vect) {
 			if (nStopValueCycling) {
 				// Set all indicators to red
 				for (int idxDisplayValue = 0; idxDisplayValue<kDISPVALUE_COUNT; idxDisplayValue++) {
-					uint8_t nCathode = kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1);
-					aintDisplaySegments[idxDisplayValue][nCathode] = aintIndicatorSegmentR[idxDisplayValue % 2];
+					setIndicator(idxDisplayValue, idxDisplayValue, 1, 0, 0);
 				}
 			} else {
 				// Set all indicators to green
 				for (int idxDisplayValue = 0; idxDisplayValue<kDISPVALUE_COUNT; idxDisplayValue++) {
-					uint8_t nCathode = kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1);
-					aintDisplaySegments[idxDisplayValue][nCathode] = aintIndicatorSegmentG[idxDisplayValue % 2];
+					setIndicator(idxDisplayValue, idxDisplayValue, 0, 1, 0);
 				}
 				
 				// Go to the next value
@@ -573,7 +596,7 @@ ISR(TIMER1_COMPA_vect) {
 		}
 		
 		if (nGotoNextValue) {
-			idxKeyTimerCount = 0;
+			nValueCycleCount = 0;
 			if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
 				idxDisplayValue = 0;
 			}
@@ -584,13 +607,39 @@ ISR(TIMER1_COMPA_vect) {
 	
 	// Process display update
 	if (nStopValueCycling == 0) {
-		if (++idxKeyTimerCount >= KEYTIMER_MAX_VALUECYCLE) {
-			idxKeyTimerCount = 0;
+		if (++nValueCycleCount >= KEYTIMER_MAX_VALUECYCLE) {
+			nValueCycleCount = 0;
 			if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
 				idxDisplayValue = 0;
 			}
 		}
 	}
+	
+	// Update displayed time elapsed
+	//~ uint8_t nNewMinuteTimerDot = 
+			//~ (++nTimingCount) 
+		//~ * 	1024	 /* prescaler */
+		//~ *	4		 /* blink for times per second */
+		//~ / 	TIMER1_OCR1A_FPU_DIV
+		//~ %	2;
+	//~ if (nNewMinuteTimerDot != nMinuteTimerDot) {
+		//~ // Update the minute timer display value
+		//~ nDisplayMinuteTimer = 
+			//~ (++nTimingCount) 
+			//~ * 1024 					/* prescaler */
+			//~ / TIMER1_OCR1A_FPU_DIV
+			//~ / 60 					/* 60 seconds per minute */
+			//~ ;
+		//~ setDisplayValue(kIDXDISPVALUE_TIMER, nDisplayMinuteTimer);
+	//~ }
+	//~ uint32_t nSecondsElapsed = 
+		//~ (++nTimingCount) 
+		//~ * 1024 /* prescaler */
+		//~ / TIMER1_OCR1A_FPU_DIV;
+	//~ if (uint16_t nNewMinutes = (nSecondsElapsed / 60) != nDisplayMinuteTimer) {
+		//~ nDisplayMinuteTimer = nNewMinutes;
+	//~ }
+
 }
 
 

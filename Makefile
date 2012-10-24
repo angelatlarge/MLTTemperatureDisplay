@@ -68,7 +68,8 @@
 # options for possible values)
 
 #~ MCU=attiny2313
-MCU=atmega48a
+#~ MCU=atmega48a
+MCU=atmega328
 #~ MCU=atmega16
 
 # id to use with programmer
@@ -78,7 +79,7 @@ MCU=atmega48a
 # for ATmega8s, avr-gcc expects 'atmega8' and 
 # avrdude requires 'm8')
 #~ PROGRAMMER_MCU=m16
-PROGRAMMER_MCU=m48
+PROGRAMMER_MCU=m328p
 
 # Name of our project
 # (use a single word, e.g. 'myproject')
