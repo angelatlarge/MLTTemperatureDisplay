@@ -1,5 +1,5 @@
 #define SPEEDUP8X
-#undef SPEEDUP8X
+//~ #undef SPEEDUP8X
 #ifdef SPEEDUP8X
 #define F_CPU 8000000UL /* 1 MHz Internal Oscillator */
 #else
@@ -121,7 +121,7 @@ sr595 sr(
 			uint8_t		idxKeyState;
 			uint8_t		nStopValueCycling;
 volatile	uint16_t	idxKeyTimerCount;							// Count of timer 1
-																	// See KEYTIMER_MAX_DISPLAYUPDATE below
+#define KEYTIMER_MAX_VALUECYCLE	258									// Update the display every 1.5 seconds
 
 /////////////////////////////////////////////////////////////////////
 // Led control
@@ -310,7 +310,8 @@ int main(void) {
 		sr.setOutput(1);
 	}
 	
-	/* 	Timer setup for display PWM - using timer 0
+	/* 	Hi-res timebase - using timer 0
+		Used for display PWM - 
 		Using 8 bit timer because this update happens fast, 
 		the timer does not need to count very high
 	*/
@@ -338,25 +339,34 @@ int main(void) {
 		aintDisplaySegments[idxDisplayValue][nCathode] = aintIndicatorSegmentG[idxDisplayValue % 2];
 	}
 	
-	// Timer setup for displaying different temperatures and reading keys - using timer 1
+	/* 	Low res timebase - using timer 1
+		Used for 
+			cycling between readings 
+			reading keys 
+	*/
 	TCNT1  = 0;            				// 	Initial counter value
 	TCCR1A =0x00;						// 	Not connected to any pin, normal operation
-	TCCR1B |= (1<<WGM12);				// 	CTC (Clear on capture = comparison) mode, 
-										// 	OCR1A compare ONLY
+	/* 	Prescaler = 1024
+		CTC (Clear on capture = comparison) mode */
+	TCCR1B = 0
+		| (0<<ICNC1) 					// ICNC1
+		| (0<<ICES1)					// ICES1
+										// -
+		| (0<<WGM13)					// WGM13
+		| (1<<WGM12)					// WGM12
+		| (1<<CS12)						// CS12
+		| (0<<CS11)						// CS11
+		| (1<<CS10)						// CS10
+		;								
 	TIMSK1 |= (1<<OCIE1A);				//	Enable timer interrupts
-	//~ OCR1A=F_CPU/64;					/* 	Refresh every second
-										//	F_CPU/64 = 15625 at 1Mhz
-	//~ OCR1A=F_CPU/1024;				// 	Refresh every second
-	TCCR1B |= (1<<CS12)|(1<<CS10);		// 	Prescaler = 1024
-	//~ OCR1A   = 2048; 					// 	Refresh once per second 
-	OCR1A   = 8; 						// 	Run this 256 times per second
-	// Number of key timer hits before switch display
-#ifdef SPEEDUP8X	
-	#define KEYTIMER_MAX_DISPLAYUPDATE	2048
-#else SPEEDUP8X	
-	#define KEYTIMER_MAX_DISPLAYUPDATE	256
-#endif SPEEDUP8X	
-	//~ TCCR1B |= (1<<CS11);			// 	Prescaler = 8
+	/*
+		The F_CPU / 175680 OCR1A setting 
+		[ 5 on 1Mhz, 45 on 8Mhz, and so on]
+		yields 171 Hz timer hits 
+		If we are doing 8 debounce checks, 
+		then the debouncing will occur within 50ms
+	*/
+	OCR1A = F_CPU / 175680;
 	
 	
 	// Timer setup for speaker
@@ -574,7 +584,7 @@ ISR(TIMER1_COMPA_vect) {
 	
 	// Process display update
 	if (nStopValueCycling == 0) {
-		if (++idxKeyTimerCount >= KEYTIMER_MAX_DISPLAYUPDATE) {
+		if (++idxKeyTimerCount >= KEYTIMER_MAX_VALUECYCLE) {
 			idxKeyTimerCount = 0;
 			if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
 				idxDisplayValue = 0;
