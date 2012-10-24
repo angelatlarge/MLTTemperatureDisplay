@@ -127,7 +127,7 @@ volatile	uint16_t	idxKeyTimerCount;							// Count of timer 1
 // Led control
 
 
-#define kDISPVALUE_COUNT				3
+#define kDISPVALUE_COUNT				6
 #define kDISPVALUE_NOVALUEAVAILABLE		0xFFFF
 #define kDISPVALUE_DIGITCOUNT			3
 #define kDISPVALUE_INDPAIRSCOUNT		3
@@ -326,14 +326,17 @@ int main(void) {
 	TIMSK0 |= (1<<OCIE0A);								//	Enable interrupts on compare match A
 
 	// Set up the outputs
+	// ... Initialize everything to zero
 	for (int i = 0; i<kDISPVALUE_COUNT; i++) {
 		for (int j = 0; j<kDISPVALUE_CATHODECOUNT; j++) {
 			aintDisplaySegments[i][j] = 0;
 		}
 	}
+	// Set the indicators
 	for (int idxDisplayValue = 0; idxDisplayValue<kDISPVALUE_COUNT; idxDisplayValue++) {
-		aintDisplaySegments[idxDisplayValue][kDISPVALUE_DIGITCOUNT + idxDisplayValue>>1] = aintIndicatorSegmentR[idxDisplayValue % 2];
-		aintDisplaySegments[idxDisplayValue][kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1)] = aintIndicatorSegmentR[0];
+		uint8_t nCathode = kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1);
+		aintDisplaySegments[idxDisplayValue][nCathode] = aintIndicatorSegmentG[idxDisplayValue % 2];
+		//~ aintDisplaySegments[idxDisplayValue][kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1)] = aintIndicatorSegmentR[0];
 	}
 	
 	// Timer setup for displaying different temperatures and reading keys - using timer 1
@@ -374,9 +377,12 @@ int main(void) {
 	uint16_t nDisplayValue = 0; 
 	uint16_t nDispCounter = 0;
 	
-    setDisplayValue(0, 123);
-    setDisplayValue(1, 216);
-    setDisplayValue(2, 40);
+    if (kDISPVALUE_COUNT > 0) { setDisplayValue(0, 123);	}
+    if (kDISPVALUE_COUNT > 1) { setDisplayValue(1, 216);	}
+    if (kDISPVALUE_COUNT > 2) { setDisplayValue(2, 40);	}
+    if (kDISPVALUE_COUNT > 3) { setDisplayValue(3, 255);	}
+    if (kDISPVALUE_COUNT > 4) { setDisplayValue(4, 128);	}
+    if (kDISPVALUE_COUNT > 5) { setDisplayValue(5, 101); 	}
 	
 	//~ _delay_ms(1000);
 	//~ uint8_t anData[2];
