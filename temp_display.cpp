@@ -138,7 +138,7 @@ volatile	uint32_t	nTimingCount;								// Count for the purposes of displaying a
 
 
 #define kDISPVALUE_COUNT				6
-#define kIDXDISPVALUE_TIMER				5
+#define kIDXDISPVALUE_TIMER				0
 #define kDISPVALUE_NOVALUEAVAILABLE		0xFFFF
 #define kDISPVALUE_DIGITCOUNT			3
 #define kDISPVALUE_INDPAIRSCOUNT		3
@@ -615,23 +615,34 @@ ISR(TIMER1_COMPA_vect) {
 		}
 	}
 	
-	// Update displayed time elapsed
-	//~ uint8_t nNewMinuteTimerDot = 
-			//~ (++nTimingCount) 
-		//~ * 	1024	 /* prescaler */
-		//~ *	4		 /* blink for times per second */
-		//~ / 	TIMER1_OCR1A_FPU_DIV
-		//~ %	2;
-	//~ if (nNewMinuteTimerDot != nMinuteTimerDot) {
-		//~ // Update the minute timer display value
-		//~ nDisplayMinuteTimer = 
-			//~ (++nTimingCount) 
-			//~ * 1024 					/* prescaler */
-			//~ / TIMER1_OCR1A_FPU_DIV
-			//~ / 60 					/* 60 seconds per minute */
-			//~ ;
-		//~ setDisplayValue(kIDXDISPVALUE_TIMER, nDisplayMinuteTimer);
-	//~ }
+	//~ // Update displayed time elapsed
+	uint32_t nCountTimesPrescale = (++nTimingCount)  * 1024;
+	uint32_t nNewMinuteTimerDot = 
+			nCountTimesPrescale
+		*	8		 /* blink 2 times per second */
+		/ 	TIMER1_OCR1A_FPU_DIV
+		%	2;
+	if (nNewMinuteTimerDot != nMinuteTimerDot) {
+		nMinuteTimerDot = nNewMinuteTimerDot;
+		// Update the minute timer display value
+		nDisplayMinuteTimer = 
+				nCountTimesPrescale
+			/ 	TIMER1_OCR1A_FPU_DIV
+			/ 	60 					/* 60 seconds per minute */
+			;
+		setDisplayValue(kIDXDISPVALUE_TIMER, nDisplayMinuteTimer);
+		
+		// Blink the dot
+		if (nMinuteTimerDot) {
+			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+				aintDisplaySegments[kIDXDISPVALUE_TIMER][0] |= LEDSEG_DP;
+			}
+		} else {
+			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+				aintDisplaySegments[kIDXDISPVALUE_TIMER][0] &= (~LEDSEG_DP);
+			}
+		}
+	}
 	//~ uint32_t nSecondsElapsed = 
 		//~ (++nTimingCount) 
 		//~ * 1024 /* prescaler */
