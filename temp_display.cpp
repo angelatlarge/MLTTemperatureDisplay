@@ -179,7 +179,151 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 	}
 }
 
+//////////////////////////////////////////////
+// Beeps
+#define kBEEP_CONTROL_MAXENTRIES	5
+#define kSPEAKER_PORT				PORTB
+#define kSPEAKER_DDR				DDRB
+#define kSPEAKER_PIN				3
 
+typedef struct {
+	uint16_t	nFreq;
+	uint16_t	nAudibleCount;
+	uint16_t	nSilentCount;
+} beepStruct;
+	beepStruct	anBeepControl[kBEEP_CONTROL_MAXENTRIES];
+	uint8_t		idxBeepControl = 0xFF;
+	uint8_t		nBeepControlCount;
+	uint16_t	nBeepTimer;
+	uint8_t		nBeepAudible;
+	uint8_t 	nBeginBeep;
+
+
+inline void beepTurnOff() {
+	kSPEAKER_DDR &= ~(1<<kSPEAKER_PIN);			/* turn off the OC PIN */
+	kSPEAKER_PORT |= 1<<kSPEAKER_PIN;			/* set this pin high */
+	TCCR2A &= ~((1<<COM2A1) | (1<<COM2A0));		/* Normal operation: OC pin disconnected */
+}	
+
+void beepProcessing() {
+	if ( nBeginBeep || (nBeepControlCount && (idxBeepControl != 0xFF)) ) {
+		// We are beeping
+		
+		uint8_t nDoNextBeepStructure = 0;
+		if (nBeginBeep) {
+			idxBeepControl = 0;
+			nBeepTimer = 0;
+			nDoNextBeepStructure = 1;
+			nBeginBeep = 0;
+		} else {
+			if (nBeepAudible) {
+				if (++nBeepTimer > anBeepControl[idxBeepControl].nAudibleCount) {
+					if (anBeepControl[idxBeepControl].nSilentCount > 0) {
+						// Do the silent part of the beep
+						beepTurnOff();
+						nBeepTimer = 0;
+					} else {
+						// Proceed to next beep structure
+						nDoNextBeepStructure = 1;
+						idxBeepControl++;
+					}
+				} // else: still doing audible
+			} else { // Silent part
+				if (++nBeepTimer > anBeepControl[idxBeepControl].nSilentCount) {
+					// Proceed to next beep structure
+					nDoNextBeepStructure = 1;
+					idxBeepControl++;
+				} // else: still doing silent
+			}
+		}
+		
+		if (nDoNextBeepStructure) {
+			nBeepTimer = 0;
+			if (idxBeepControl < nBeepControlCount) {
+				nBeepAudible = 1;
+				TCNT2  = 0;            				// 	Initial counter value
+				/* CTC mode, toggle the output pin */
+				TCCR2A = 0
+					| 0<<COM2A1	// COM2A1
+					| 1<<COM2A0 // COM2A0
+					| 0<<COM2B1 // COM2B1
+					| 0<<COM2B0 // COM2B0
+								// -
+								// – 
+					| 1<<WGM21	// WGM21
+					| 0<<WGM20	// WGM20
+					;
+				TCCR2B = 
+					/* Prescaler = 1025	*/
+					0
+					| 0<<FOC2A 	// FOC2A 
+					| 0<<FOC2B 	// FOC2B
+								// – 
+								// – 
+					| 0<<WGM22 	// WGM22
+					;
+				// Set the prescaler
+				uint16_t nPrescaler; 
+				switch (F_CPU) {
+					case 8000000UL :
+						// Prescaler = 256
+						nPrescaler = 256;
+						TCCR2B |=  (1<<CS22)|(1<<CS21)|(0<<CS20);
+						break;
+					case 1000000UL :
+						// Prescaler = 32
+						nPrescaler = 32;
+						TCCR2B |=  (0<<CS22)|(1<<CS21)|(1<<CS20);
+						break;
+					default:
+						// Prescaler = 256
+						nPrescaler = 256;
+						TCCR2B |=  (1<<CS22)|(1<<CS21)|(0<<CS20);
+						break;
+				}
+				// Calculate the TOP
+				OCR2A = F_CPU / nPrescaler / anBeepControl[idxBeepControl].nFreq;
+				// Connect the OC pin
+				kSPEAKER_DDR |= 1<<kSPEAKER_PIN;			/* Connect the OC PIN */
+			} else {
+				// Done beeping
+				idxBeepControl = 0xFF;
+				nBeepControlCount = 0;
+				
+				beepTurnOff();
+			}
+		}
+	}
+}
+
+void beepA() {
+	anBeepControl[0].nFreq = 2000;
+	anBeepControl[0].nAudibleCount = 1;
+	anBeepControl[0].nSilentCount = 0;
+	nBeepControlCount = 1;
+	nBeginBeep = 1;
+}
+
+void beepB() {
+	anBeepControl[0].nFreq = 440;
+	anBeepControl[0].nAudibleCount = 16;
+	anBeepControl[0].nSilentCount = 0;
+	
+	anBeepControl[1].nFreq = 554;
+	anBeepControl[1].nAudibleCount = 16;
+	anBeepControl[1].nSilentCount = 0;
+	
+	anBeepControl[2].nFreq = 659;
+	anBeepControl[2].nAudibleCount = 16;
+	anBeepControl[2].nSilentCount = 0;
+	
+	anBeepControl[3].nFreq = 880;
+	anBeepControl[3].nAudibleCount = 32;
+	anBeepControl[3].nSilentCount = 0;
+	
+	nBeepControlCount = 4;
+	nBeginBeep = 1;
+}
 
 //~ #include "uart.h"
 //////////////////////////////////////////////
@@ -394,47 +538,6 @@ int main(void) {
 	*/
 	OCR1A = F_CPU / TIMER1_OCR1A_FPU_DIV;
 		
-	// Timer setup for speaker
-	DDRB |= 1<<3;
-	//~ DDR_OC2 = 0xFF;
-
-	TCNT2  = 0;            				// 	Initial counter value
-	TCCR2A = 0
-		| 0<<COM2A1	// COM2A1
-		| 1<<COM2A0 // COM2A0
-		| 0<<COM2B1 // COM2B1
-		| 0<<COM2B0 // COM2B0
-					// -
-					// – 
-		| 1<<WGM21	// WGM21
-		| 0<<WGM20	// WGM20
-		;
-	TCCR2B = 0
-		| 0<<FOC2A 	// FOC2A 
-		| 0<<FOC2B 	// FOC2B
-		 			// – 
-		 			// – 
-		| 0<<WGM22 	// WGM22
-		| 1<<CS22 	// CS22
-		| 0<<CS21 	// CS21
-		| 1<<CS20 	// CS20
-		;
-	//~ TCCR2B |= (1<<WGM12);				// 	CTC (Clear on capture = comparison) mode, 
-										// 	OCR1A compare ONLY
-	//~ TIMSK2 |= (1<<OCIE1A);			//	Enable timer interrupts
-	//~ OCR1A=F_CPU/64;					/* 	Refresh every second
-										//	F_CPU/64 = 15625 at 1Mhz
-	//~ OCR1A=F_CPU/1024;				// 	Refresh every second
-	//~ TCCR2B |= (1<<CS12)|(1<<CS10);		// 	Prescaler = 1024
-	//~ OCR1A   = 2048; 					// 	Refresh once per second 
-	OCR2A   = 5; 						
-	// Number of key timer hits before switch display
-#ifdef SPEEDUP8X	
-#else SPEEDUP8X	
-#endif SPEEDUP8X	
-	//~ TCCR1B |= (1<<CS11);			// 	Prescaler = 8
-
-
 	// Set up the inputs
 	// ... Initialize reading direction
 	INPUTS_DIR &= ~(INPUT_ALL);
@@ -458,6 +561,9 @@ int main(void) {
     if (kDISPVALUE_COUNT > 3) { setDisplayValue(3, 255);	}
     if (kDISPVALUE_COUNT > 4) { setDisplayValue(4, 128);	}
     if (kDISPVALUE_COUNT > 5) { setDisplayValue(5, 101); 	}
+	
+	// Turn off the speaker
+	beepTurnOff();
 	
 	//~ _delay_ms(1000);
 	//~ uint8_t anData[2];
@@ -575,6 +681,7 @@ ISR(TIMER1_COMPA_vect) {
 			if (++idxActiveCathode >= kDISPVALUE_CATHODECOUNT) {
 				idxActiveCathode = 0;
 			}
+			beepA();
 		}
 		if ( (nChangedBits & INPUT_BTNLEFT) && ((intNewKeyState & INPUT_BTNLEFT) == 0) ) {
 			// Left key pressed
@@ -593,6 +700,7 @@ ISR(TIMER1_COMPA_vect) {
 				// Go to the next value
 				nGotoNextValue = 1;
 			}
+			beepB();
 		}
 		
 		if (nGotoNextValue) {
@@ -617,11 +725,12 @@ ISR(TIMER1_COMPA_vect) {
 	
 	//~ // Update displayed time elapsed
 	uint32_t nCountTimesPrescale = (++nTimingCount)  * 1024;
-	uint32_t nNewMinuteTimerDot = 
+	uint32_t nTimebase = 
 			nCountTimesPrescale
-		*	8		 /* blink 2 times per second */
+		*	16		 
 		/ 	TIMER1_OCR1A_FPU_DIV
-		%	2;
+		;
+	uint32_t nNewMinuteTimerDot = nTimebase / 2 % 2;
 	if (nNewMinuteTimerDot != nMinuteTimerDot) {
 		nMinuteTimerDot = nNewMinuteTimerDot;
 		// Update the minute timer display value
@@ -643,14 +752,9 @@ ISR(TIMER1_COMPA_vect) {
 			}
 		}
 	}
-	//~ uint32_t nSecondsElapsed = 
-		//~ (++nTimingCount) 
-		//~ * 1024 /* prescaler */
-		//~ / TIMER1_OCR1A_FPU_DIV;
-	//~ if (uint16_t nNewMinutes = (nSecondsElapsed / 60) != nDisplayMinuteTimer) {
-		//~ nDisplayMinuteTimer = nNewMinutes;
-	//~ }
-
+	if (nTimebase % 2) {
+		beepProcessing();
+	}
 }
 
 
