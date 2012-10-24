@@ -335,8 +335,7 @@ int main(void) {
 	// Set the indicators
 	for (int idxDisplayValue = 0; idxDisplayValue<kDISPVALUE_COUNT; idxDisplayValue++) {
 		uint8_t nCathode = kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1);
-		aintDisplaySegments[idxDisplayValue][nCathode] = aintIndicatorSegmentR[idxDisplayValue % 2];
-		//~ aintDisplaySegments[idxDisplayValue][kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1)] = aintIndicatorSegmentR[0];
+		aintDisplaySegments[idxDisplayValue][nCathode] = aintIndicatorSegmentG[idxDisplayValue % 2];
 	}
 	
 	// Timer setup for displaying different temperatures and reading keys - using timer 1
@@ -545,7 +544,22 @@ ISR(TIMER1_COMPA_vect) {
 		if ( (nChangedBits & INPUT_BTNLEFT) && ((intNewKeyState & INPUT_BTNLEFT) == 0) ) {
 			// Left key pressed
 			nStopValueCycling = nStopValueCycling ^ 0x01;
-			if (!nStopValueCycling) nGotoNextValue = 1;
+			if (nStopValueCycling) {
+				// Set all indicators to red
+				for (int idxDisplayValue = 0; idxDisplayValue<kDISPVALUE_COUNT; idxDisplayValue++) {
+					uint8_t nCathode = kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1);
+					aintDisplaySegments[idxDisplayValue][nCathode] = aintIndicatorSegmentR[idxDisplayValue % 2];
+				}
+			} else {
+				// Set all indicators to green
+				for (int idxDisplayValue = 0; idxDisplayValue<kDISPVALUE_COUNT; idxDisplayValue++) {
+					uint8_t nCathode = kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1);
+					aintDisplaySegments[idxDisplayValue][nCathode] = aintIndicatorSegmentG[idxDisplayValue % 2];
+				}
+				
+				// Go to the next value
+				nGotoNextValue = 1;
+			}
 		}
 		
 		if (nGotoNextValue) {
