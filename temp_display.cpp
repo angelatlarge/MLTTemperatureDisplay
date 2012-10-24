@@ -110,7 +110,7 @@ sr595 sr(
 #define INPUTS_DIR		DDRB
 #define INPUTS_PORT		PORTB
 #define INPUTS_PIN		PINB
-#define	INPUT_BTNRIGHT		(01<<03)
+#define	INPUT_BTNRIGHT		(01<<02)
 #define	INPUT_BTNLEFT		(01<<04)
 #define	INPUT_ENCODERLEFT	(01<<06)
 #define	INPUT_ENCODERRIGHT	(01<<07)
@@ -335,7 +335,7 @@ int main(void) {
 	// Set the indicators
 	for (int idxDisplayValue = 0; idxDisplayValue<kDISPVALUE_COUNT; idxDisplayValue++) {
 		uint8_t nCathode = kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1);
-		aintDisplaySegments[idxDisplayValue][nCathode] = aintIndicatorSegmentG[idxDisplayValue % 2];
+		aintDisplaySegments[idxDisplayValue][nCathode] = aintIndicatorSegmentR[idxDisplayValue % 2];
 		//~ aintDisplaySegments[idxDisplayValue][kDISPVALUE_DIGITCOUNT + (idxDisplayValue>>1)] = aintIndicatorSegmentR[0];
 	}
 	
@@ -360,6 +360,47 @@ int main(void) {
 	//~ TCCR1B |= (1<<CS11);			// 	Prescaler = 8
 	
 	
+	// Timer setup for speaker
+	DDRB |= 1<<3;
+	//~ DDR_OC2 = 0xFF;
+
+	TCNT2  = 0;            				// 	Initial counter value
+	TCCR2A = 0
+		| 0<<COM2A1	// COM2A1
+		| 1<<COM2A0 // COM2A0
+		| 0<<COM2B1 // COM2B1
+		| 0<<COM2B0 // COM2B0
+					// -
+					// – 
+		| 1<<WGM21	// WGM21
+		| 0<<WGM20	// WGM20
+		;
+	TCCR2B = 0
+		| 0<<FOC2A 	// FOC2A 
+		| 0<<FOC2B 	// FOC2B
+		 			// – 
+		 			// – 
+		| 0<<WGM22 	// WGM22
+		| 1<<CS22 	// CS22
+		| 0<<CS21 	// CS21
+		| 1<<CS20 	// CS20
+		;
+	//~ TCCR2B |= (1<<WGM12);				// 	CTC (Clear on capture = comparison) mode, 
+										// 	OCR1A compare ONLY
+	//~ TIMSK2 |= (1<<OCIE1A);			//	Enable timer interrupts
+	//~ OCR1A=F_CPU/64;					/* 	Refresh every second
+										//	F_CPU/64 = 15625 at 1Mhz
+	//~ OCR1A=F_CPU/1024;				// 	Refresh every second
+	//~ TCCR2B |= (1<<CS12)|(1<<CS10);		// 	Prescaler = 1024
+	//~ OCR1A   = 2048; 					// 	Refresh once per second 
+	OCR2A   = 5; 						
+	// Number of key timer hits before switch display
+#ifdef SPEEDUP8X	
+#else SPEEDUP8X	
+#endif SPEEDUP8X	
+	//~ TCCR1B |= (1<<CS11);			// 	Prescaler = 8
+
+
 	// Set up the inputs
 	// ... Initialize reading direction
 	INPUTS_DIR &= ~(INPUT_ALL);
