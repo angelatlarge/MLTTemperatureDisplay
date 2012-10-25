@@ -102,12 +102,18 @@ sr595 sr(
 		STCP				// anSTCP
 		);
 
+/////////////////////////////////////////////////////////////////////
+// Regimes
+#define kREGIME_DISPLAYVALUES	0
+#define kREGIME_SETTIMER		1
+			uint8_t		nRegime = 0;
 
 /////////////////////////////////////////////////////////////////////
 // Keys control
-#define TIMER1_OCR1A_FPU_DIV	175680
+#define TIMER1_OCR1A_FPU_DIV	351360
 
-#define kMAX_KEYBOUNCE_CHECKS	8
+
+#define kMAX_KEYBOUNCE_CHECKS	6
 #define INPUTS_DIR		DDRB
 #define INPUTS_PORT		PORTB
 #define INPUTS_PIN		PINB
@@ -121,17 +127,30 @@ sr595 sr(
 			uint8_t		intKeyState;
 			uint8_t		idxKeyState;
 			uint8_t		nStopValueCycling;
-			
+#define	INPUT_IGNORE_ENCODER_OPPDIR_TICK_COUNT	24			
+			uint8_t		nEncoderRotationIgnoreTickCount;
 /////////////////////////////////////////////////////////////////////
 // Other low-res timer stuff
 
 // Value cycling
 volatile	uint16_t	nValueCycleCount;							// Count of for the purposes of value cycling
-#define KEYTIMER_MAX_VALUECYCLE	258									// Update the display every 1.5 seconds
+#define KEYTIMER_MAX_VALUECYCLE	515									/* Update the display every 1.5 seconds
+																		since the speed of the slow timer is independent of the CPU speed
+																		this value need not be adjusted for FCPU 
+																	*/
 
 volatile	uint32_t	nTimingCount;								// Count for the purposes of displaying a timer
 			uint16_t	nDisplayMinuteTimer; 
 			uint8_t		nMinuteTimerDot; 
+			
+			
+			uint16_t	nKeyPressCycleCount;			
+			uint8_t		nIgnoreKeyRelease;			
+#define kLONGPRESS_MAX_CYCLE_COUNT	125									/* Long press is 1000ms
+																		since the speed of the slow timer is independent of the CPU speed
+																		this value need not be adjusted for FCPU 
+																	*/
+
 
 /////////////////////////////////////////////////////////////////////
 // Led control
@@ -402,7 +421,7 @@ int uart_getChar(FILE *stream) {
 
 
 //////////////////////////////////////////////
-// Main
+// Setting indicators
 void setIndicator(uint8_t idxDisplayValue, uint8_t idxIndicatorLed, uint8_t R, uint8_t G, uint8_t B) {
 	uint8_t nCathode = kDISPVALUE_DIGITCOUNT + (idxIndicatorLed>>1);
 	aintDisplaySegments[idxDisplayValue][nCathode] = 
@@ -508,7 +527,20 @@ int main(void) {
 	for (int idxDisplayValue = 0; idxDisplayValue<kDISPVALUE_COUNT; idxDisplayValue++) {
 		setIndicator(idxDisplayValue, idxDisplayValue, 0, 1, 0);
 	}
-	
+
+	// Set up the inputs
+	// ... Initialize reading direction
+	INPUTS_DIR &= ~(INPUT_ALL);
+	// ... Initialize pullup resistors
+	INPUTS_PORT |=  INPUT_ALL;
+	// ... Initialize the debouncing structure
+	idxKeyState = 0;
+	for (int i=0; i<kMAX_KEYBOUNCE_CHECKS; i++) {
+		aintDebounceState[i] = INPUT_ALL;				// Inputs are high by default, 
+														// so set them up to be high
+	}
+	intKeyState = INPUT_ALL;
+
 	/* 	Low res timebase - using timer 1
 		Used for 
 			cycling between readings 
@@ -538,17 +570,6 @@ int main(void) {
 	*/
 	OCR1A = F_CPU / TIMER1_OCR1A_FPU_DIV;
 		
-	// Set up the inputs
-	// ... Initialize reading direction
-	INPUTS_DIR &= ~(INPUT_ALL);
-	// ... Initialize pullup resistors
-	INPUTS_PORT |=  INPUT_ALL;
-	// ... Initialize the debouncing structure
-	idxKeyState = 0;
-	for (int i=0; i<kMAX_KEYBOUNCE_CHECKS; i++) {
-		aintDebounceState[i] = INPUT_ALL;				// Inputs are high by default, 
-														// so set them up to be high
-	}
 	
 	sei();								//	Start interrupt handling
 	
@@ -649,7 +670,22 @@ ISR(TIMER1_COMPA_vect) {
 /*
 	Services display update and key reading
 */	
+	// Process previousely remembered longpress
+	if (nKeyPressCycleCount) {
+		if (++nKeyPressCycleCount > kLONGPRESS_MAX_CYCLE_COUNT) {
+			if ((intKeyState & INPUT_ENCODERBTN) == 0) {
+				// The encoder button has been longpressed
+				nRegime = kREGIME_SETTIMER;
+				nIgnoreKeyRelease = 1;
+			}
+			nKeyPressCycleCount = 0;
+		}
+	}
 	
+	// Move on in ignoring encoder in the opposite direction
+	if (nEncoderRotationIgnoreTickCount) {
+		nEncoderRotationIgnoreTickCount--;
+	}
 	
 	// Do reading of keys here
 	aintDebounceState[idxKeyState] = INPUTS_PIN & INPUT_ALL;
@@ -671,59 +707,101 @@ ISR(TIMER1_COMPA_vect) {
 	intNewKeyState |= (intAccAND & nDeboundedBitMask); 		// Set the debounced bits
 	uint8_t nChangedBits = intNewKeyState ^ intKeyState;
 	if (nChangedBits) {
-		// Bits changed
+		// Key bits changed
 		
-			uint8_t nGotoNextValue = 0;
+		if ((nChangedBits & intNewKeyState) == 0) {
+			// This is a press event
+			nKeyPressCycleCount = 1;				// Initiate the long press counting
 			
-		if ( (nChangedBits & INPUT_BTNRIGHT) && ((intNewKeyState & INPUT_BTNRIGHT) == 0) ) {
-			// Right key pressed
-			nGotoNextValue = 1;
-			if (++idxActiveCathode >= kDISPVALUE_CATHODECOUNT) {
-				idxActiveCathode = 0;
-			}
-			beepA();
+		} else {
+			// This is a release event
+			nKeyPressCycleCount = 0;				// Clear the long press counting
 		}
-		if ( (nChangedBits & INPUT_BTNLEFT) && ((intNewKeyState & INPUT_BTNLEFT) == 0) ) {
-			// Left key pressed
-			nStopValueCycling = nStopValueCycling ^ 0x01;
-			if (nStopValueCycling) {
-				// Set all indicators to red
-				for (int idxDisplayValue = 0; idxDisplayValue<kDISPVALUE_COUNT; idxDisplayValue++) {
-					setIndicator(idxDisplayValue, idxDisplayValue, 1, 0, 0);
+	}
+	
+	switch (nRegime) {
+	case kREGIME_DISPLAYVALUES:
+		if (nChangedBits) {
+			if ((nChangedBits & intNewKeyState) == 0) {
+				// This is a press event
+				if ((nChangedBits & INPUT_ENCODERLEFT) && !nEncoderRotationIgnoreTickCount) {
+					// Encoder left
+					// 1. go to previous value 
+					if (idxDisplayValue==0) {
+						idxDisplayValue = kDISPVALUE_COUNT - 1; 
+					} else {
+						--idxDisplayValue;
+					}
+					// 2. reset the value display timer
+					nValueCycleCount = 0;
+					// 3. Ignoring encoder in the opposite direction
+					nEncoderRotationIgnoreTickCount = INPUT_IGNORE_ENCODER_OPPDIR_TICK_COUNT;
+				} else if ((nChangedBits & INPUT_ENCODERRIGHT) && !nEncoderRotationIgnoreTickCount) {
+					// Encoder right
+					// 1. go to next value 
+					if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
+						idxDisplayValue = 0;
+					}
+					// 2. reset the value display timer
+					nValueCycleCount = 0;
+					// 3. Ignoring encoder in the opposite direction
+					nEncoderRotationIgnoreTickCount = INPUT_IGNORE_ENCODER_OPPDIR_TICK_COUNT;
 				}
 			} else {
-				// Set all indicators to green
-				for (int idxDisplayValue = 0; idxDisplayValue<kDISPVALUE_COUNT; idxDisplayValue++) {
-					setIndicator(idxDisplayValue, idxDisplayValue, 0, 1, 0);
+				// This is a release event
+				if (nIgnoreKeyRelease) {
+					nIgnoreKeyRelease = 0;
+				} else {
+					if (nChangedBits & INPUT_ENCODERBTN) {
+						// Short encoder button: pause/restart cycling
+						nStopValueCycling = nStopValueCycling ^ 0x01;
+						if (nStopValueCycling) {
+							// Set all indicators to red
+							for (int idxVal = 0; idxVal<kDISPVALUE_COUNT; idxVal++) {
+								setIndicator(idxVal, idxVal, 1, 0, 0);
+							}
+						} else {
+							// Set all indicators to green
+							for (int idxVal = 0; idxVal<kDISPVALUE_COUNT; idxVal++) {
+								setIndicator(idxVal, idxVal, 0, 1, 0);
+							}
+							
+							// Go to the next value
+							nValueCycleCount = 0;
+							if ( (++idxDisplayValue) >= (kDISPVALUE_COUNT) ) {
+								idxDisplayValue = 0;
+							}
+						}
+					}
 				}
-				
-				// Go to the next value
-				nGotoNextValue = 1;
-			}
-			beepB();
-		}
-		
-		if (nGotoNextValue) {
-			nValueCycleCount = 0;
-			if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
-				idxDisplayValue = 0;
+					
 			}
 		}
-		
+		break;
+	case kREGIME_SETTIMER:
+		// Code for the set timer regime
+		break;		
+	}
+	
+	
+	if (nChangedBits) {
+		// Key bits changed: save key values
 		intKeyState = intNewKeyState;
 	}
 	
-	// Process display update
-	if (nStopValueCycling == 0) {
-		if (++nValueCycleCount >= KEYTIMER_MAX_VALUECYCLE) {
-			nValueCycleCount = 0;
-			if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
-				idxDisplayValue = 0;
+	if (nRegime==kREGIME_DISPLAYVALUES) {
+		// Do display updating
+		if (nStopValueCycling == 0) {
+			if (++nValueCycleCount >= KEYTIMER_MAX_VALUECYCLE) {
+				nValueCycleCount = 0;
+				if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
+					idxDisplayValue = 0;
+				}
 			}
 		}
 	}
 	
-	//~ // Update displayed time elapsed
+	// Update time elapsed
 	uint32_t nCountTimesPrescale = (++nTimingCount)  * 1024;
 	uint32_t nTimebase = 
 			nCountTimesPrescale
@@ -752,9 +830,11 @@ ISR(TIMER1_COMPA_vect) {
 			}
 		}
 	}
+	// Update beeping
 	if (nTimebase % 2) {
 		beepProcessing();
 	}
+	
 }
 
 
