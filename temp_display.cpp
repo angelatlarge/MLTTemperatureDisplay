@@ -140,16 +140,17 @@ volatile	uint16_t	nValueCycleCount;							// Count of for the purposes of value 
 																	*/
 
 volatile	uint32_t	nTimingCount;								// Count for the purposes of displaying a timer
-			uint16_t	nDisplayMinuteTimer; 
+			uint16_t	nDisplayTimerValue; 
 			uint8_t		nMinuteTimerDot; 
-			
+			uint8_t		nCountUp = 1; 
+#define COUNTDOWNTIMER_MAXMINUTES			120			
 			
 			uint16_t	nKeyPressCycleCount;			
 			uint8_t		nIgnoreKeyRelease;			
-#define kLONGPRESS_MAX_CYCLE_COUNT	125									/* Long press is 1000ms
+#define kLONGPRESS_MAX_CYCLE_COUNT	500									/* Long press 
 																		since the speed of the slow timer is independent of the CPU speed
 																		this value need not be adjusted for FCPU 
-																	*/
+																		*/
 
 
 /////////////////////////////////////////////////////////////////////
@@ -157,18 +158,24 @@ volatile	uint32_t	nTimingCount;								// Count for the purposes of displaying a
 
 
 #define kDISPVALUE_COUNT				6
+#define kIDXDISPVALUE_SETTING			kDISPVALUE_COUNT
 #define kIDXDISPVALUE_TIMER				0
 #define kDISPVALUE_NOVALUEAVAILABLE		0xFFFF
 #define kDISPVALUE_DIGITCOUNT			3
 #define kDISPVALUE_INDPAIRSCOUNT		3
 #define kDISPVALUE_CATHODECOUNT			(kDISPVALUE_DIGITCOUNT+kDISPVALUE_INDPAIRSCOUNT)
 
-volatile	uint16_t	aintDisplayValue[kDISPVALUE_COUNT];  				// 	Value to be displayed in the LEDs
+volatile	uint16_t	aintDisplayValue[kDISPVALUE_COUNT+1];  				// 	Value to be displayed in the LEDs
+																			//  Extra value is for regimes other than value cycling
 volatile	uint8_t		idxDisplayValue = 0;
-volatile	uint8_t		aintDisplaySegments[kDISPVALUE_COUNT][kDISPVALUE_CATHODECOUNT];  // 	Value to be displayed on each led
+volatile	uint8_t		aintDisplaySegments[kDISPVALUE_COUNT+1][kDISPVALUE_CATHODECOUNT];   // 	Value to be displayed on each led
+																							// 	Extra value is for other regimes
 volatile	uint8_t		nResetting;
 volatile	uint8_t 	idxActiveCathode = 0;
 
+inline uint16_t getDisplayValue(uint8_t idxDispValue) {
+	return aintDisplayValue[idxDispValue];
+}
 
 void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 	if (nResetting) { return; }
@@ -200,7 +207,7 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 
 //////////////////////////////////////////////
 // Beeps
-#define kBEEP_CONTROL_MAXENTRIES	5
+#define kBEEP_CONTROL_MAXENTRIES	6
 #define kSPEAKER_PORT				PORTB
 #define kSPEAKER_DDR				DDRB
 #define kSPEAKER_PIN				3
@@ -240,6 +247,7 @@ void beepProcessing() {
 					if (anBeepControl[idxBeepControl].nSilentCount > 0) {
 						// Do the silent part of the beep
 						beepTurnOff();
+						nBeepAudible = 0;
 						nBeepTimer = 0;
 					} else {
 						// Proceed to next beep structure
@@ -344,6 +352,32 @@ void beepB() {
 	nBeginBeep = 1;
 }
 
+void beepC_lowlong() {
+	anBeepControl[0].nFreq = 220;
+	anBeepControl[0].nAudibleCount = 64;
+	anBeepControl[0].nSilentCount = 0;
+	nBeepControlCount = 1;
+	nBeginBeep = 1;
+}
+
+void beepD_higshort() {
+	anBeepControl[0].nFreq = 800;
+	anBeepControl[0].nAudibleCount = 32;
+	anBeepControl[0].nSilentCount = 0;
+	nBeepControlCount = 1;
+	nBeginBeep = 1;
+}
+
+void beepE_timerexpired() {
+	for (int i = 0; i<6; i++) {
+		anBeepControl[i].nFreq = 1000;
+		anBeepControl[i].nAudibleCount = 16;
+		anBeepControl[i].nSilentCount = 4;
+	}
+	nBeepControlCount = 5;
+	nBeginBeep = 1;
+}
+
 //~ #include "uart.h"
 //////////////////////////////////////////////
 // Serial 
@@ -422,7 +456,7 @@ int uart_getChar(FILE *stream) {
 
 //////////////////////////////////////////////
 // Setting indicators
-void setIndicator(uint8_t idxDisplayValue, uint8_t idxIndicatorLed, uint8_t R, uint8_t G, uint8_t B) {
+inline void setIndicator(uint8_t idxDisplayValue, uint8_t idxIndicatorLed, uint8_t R, uint8_t G, uint8_t B) {
 	uint8_t nCathode = kDISPVALUE_DIGITCOUNT + (idxIndicatorLed>>1);
 	aintDisplaySegments[idxDisplayValue][nCathode] = 
 			(R ? aintIndicatorSegmentR[idxIndicatorLed % 2] : 0)
@@ -516,7 +550,7 @@ int main(void) {
 
 	// Set up the outputs
 	// ... Initialize everything to zero
-	for (int i = 0; i<kDISPVALUE_COUNT; i++) {
+	for (int i = 0; i<kDISPVALUE_COUNT+1; i++) {
 		for (int j = 0; j<kDISPVALUE_CATHODECOUNT; j++) {
 			aintDisplaySegments[i][j] = 0;
 		}
@@ -675,8 +709,19 @@ ISR(TIMER1_COMPA_vect) {
 		if (++nKeyPressCycleCount > kLONGPRESS_MAX_CYCLE_COUNT) {
 			if ((intKeyState & INPUT_ENCODERBTN) == 0) {
 				// The encoder button has been longpressed
-				nRegime = kREGIME_SETTIMER;
 				nIgnoreKeyRelease = 1;
+				switch (nRegime) {
+				case kREGIME_DISPLAYVALUES:
+					nRegime = kREGIME_SETTIMER;				// Change the regime
+					beepC_lowlong();						// Audio indicator
+					setDisplayValue(kIDXDISPVALUE_SETTING, 0);	// Initialize the value
+					idxDisplayValue = kIDXDISPVALUE_SETTING;		// Make the leds display this value
+					setIndicator(kIDXDISPVALUE_SETTING, kIDXDISPVALUE_TIMER, 0, 0, 1);	// Turn on blue led
+					break;
+				case kREGIME_SETTIMER:
+					nRegime = kREGIME_DISPLAYVALUES;		// Change the regime
+					beepD_higshort();						// Audio indicator
+				}
 			}
 			nKeyPressCycleCount = 0;
 		}
@@ -719,9 +764,10 @@ ISR(TIMER1_COMPA_vect) {
 		}
 	}
 	
-	switch (nRegime) {
-	case kREGIME_DISPLAYVALUES:
-		if (nChangedBits) {
+	// Process keys by regime
+	if (nChangedBits) {
+		switch (nRegime) {
+		case kREGIME_DISPLAYVALUES:
 			if ((nChangedBits & intNewKeyState) == 0) {
 				// This is a press event
 				if ((nChangedBits & INPUT_ENCODERLEFT) && !nEncoderRotationIgnoreTickCount) {
@@ -776,13 +822,57 @@ ISR(TIMER1_COMPA_vect) {
 				}
 					
 			}
-		}
 		break;
-	case kREGIME_SETTIMER:
-		// Code for the set timer regime
-		break;		
+		case kREGIME_SETTIMER:
+			// Code for the set timer regime
+			if ((nChangedBits & intNewKeyState) == 0) {
+				// This is a press event
+				if ((nChangedBits & INPUT_ENCODERLEFT) && !nEncoderRotationIgnoreTickCount) {
+					// Encoder left
+					if (getDisplayValue(kIDXDISPVALUE_SETTING) > 0) {
+						setDisplayValue(kIDXDISPVALUE_SETTING, getDisplayValue(kIDXDISPVALUE_SETTING) - 1);
+					} else {
+						setDisplayValue(kIDXDISPVALUE_SETTING, COUNTDOWNTIMER_MAXMINUTES);
+					}
+					nEncoderRotationIgnoreTickCount = INPUT_IGNORE_ENCODER_OPPDIR_TICK_COUNT;
+				} else if ((nChangedBits & INPUT_ENCODERRIGHT) && !nEncoderRotationIgnoreTickCount) {
+					// Encoder right
+					if (getDisplayValue(kIDXDISPVALUE_SETTING) < COUNTDOWNTIMER_MAXMINUTES) {
+						setDisplayValue(kIDXDISPVALUE_SETTING, getDisplayValue(kIDXDISPVALUE_SETTING) + 1);
+					} else {
+						setDisplayValue(kIDXDISPVALUE_SETTING, 0);
+					}
+					nEncoderRotationIgnoreTickCount = INPUT_IGNORE_ENCODER_OPPDIR_TICK_COUNT;
+				}
+			} else {
+				// This is a release event
+				if (nIgnoreKeyRelease) {
+					nIgnoreKeyRelease = 0;
+				} else {
+					if (nChangedBits & INPUT_ENCODERBTN) {
+						// Short press: save setting
+						if (getDisplayValue(kIDXDISPVALUE_SETTING) > 0) {
+							// Set up the countdown timer
+							nCountUp = 0;
+							nTimingCount  = 
+									getDisplayValue(kIDXDISPVALUE_SETTING)			// Minutes
+								*	60												// Seconds
+								*	TIMER1_OCR1A_FPU_DIV							// Cycle requency
+								/	1024											// Prescaler
+								;
+						} else {
+							// Nothing to do
+							nCountUp = 1;
+							nTimingCount = 0;
+						}
+						nRegime = kREGIME_DISPLAYVALUES;		// Change the regime
+						beepD_higshort();						// Audio indicator
+					}
+				}
+			}
+			break;		
+		}
 	}
-	
 	
 	if (nChangedBits) {
 		// Key bits changed: save key values
@@ -802,7 +892,17 @@ ISR(TIMER1_COMPA_vect) {
 	}
 	
 	// Update time elapsed
-	uint32_t nCountTimesPrescale = (++nTimingCount)  * 1024;
+	if (nCountUp) { 
+		nTimingCount++;
+	} else {
+		if (--nTimingCount == 0) {
+			// Timer expired
+			beepE_timerexpired();
+			nCountUp = 1;
+		}
+	}
+	
+	uint32_t nCountTimesPrescale = nTimingCount  * 1024;
 	uint32_t nTimebase = 
 			nCountTimesPrescale
 		*	16		 
@@ -812,21 +912,32 @@ ISR(TIMER1_COMPA_vect) {
 	if (nNewMinuteTimerDot != nMinuteTimerDot) {
 		nMinuteTimerDot = nNewMinuteTimerDot;
 		// Update the minute timer display value
-		nDisplayMinuteTimer = 
+		nDisplayTimerValue = 
 				nCountTimesPrescale
 			/ 	TIMER1_OCR1A_FPU_DIV
 			/ 	60 					/* 60 seconds per minute */
 			;
-		setDisplayValue(kIDXDISPVALUE_TIMER, nDisplayMinuteTimer);
+		uint8_t idxLEDdot = 0;
+		if (nDisplayTimerValue < 10) {
+			// Display seconds, blink dot on the first led
+			nDisplayTimerValue = 
+					nDisplayTimerValue * 100							// Minutes
+				+ 	nCountTimesPrescale / TIMER1_OCR1A_FPU_DIV % 60;	// Seconds
+			idxLEDdot = 2;
+		} else {
+			// Display minutes only, blink last dot 
+			// Nothing to do here
+		}
+		setDisplayValue(kIDXDISPVALUE_TIMER, nDisplayTimerValue);
 		
 		// Blink the dot
 		if (nMinuteTimerDot) {
 			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-				aintDisplaySegments[kIDXDISPVALUE_TIMER][0] |= LEDSEG_DP;
+				aintDisplaySegments[kIDXDISPVALUE_TIMER][idxLEDdot] |= LEDSEG_DP;
 			}
 		} else {
 			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-				aintDisplaySegments[kIDXDISPVALUE_TIMER][0] &= (~LEDSEG_DP);
+				aintDisplaySegments[kIDXDISPVALUE_TIMER][idxLEDdot] &= (~LEDSEG_DP);
 			}
 		}
 	}
