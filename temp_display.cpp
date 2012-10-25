@@ -212,13 +212,18 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 #define kSPEAKER_DDR				DDRB
 #define kSPEAKER_PIN				3
 
+#define kIDXNEXTBEEP_NEXT			0xFF
+#define kIDXNEXTBEEP_STOP			0xFE
+#define kIDXNEXTBEEP_FIRST			0x00
 typedef struct {
 	uint16_t	nFreq;
 	uint16_t	nAudibleCount;
 	uint16_t	nSilentCount;
+	uint8_t		idxNextBeep;
 } beepStruct;
 	beepStruct	anBeepControl[kBEEP_CONTROL_MAXENTRIES];
-	uint8_t		idxBeepControl = 0xFF;
+#define kBEEPCONTROL_NOBEEP	0xFF
+	uint8_t		idxBeepControl = kBEEPCONTROL_NOBEEP;
 	uint8_t		nBeepControlCount;
 	uint16_t	nBeepTimer;
 	uint8_t		nBeepAudible;
@@ -231,8 +236,14 @@ inline void beepTurnOff() {
 	TCCR2A &= ~((1<<COM2A1) | (1<<COM2A0));		/* Normal operation: OC pin disconnected */
 }	
 
+void beepStop() {
+	nBeepControlCount = 0;
+	idxBeepControl = kBEEPCONTROL_NOBEEP; 
+	beepTurnOff();
+}
+
 void beepProcessing() {
-	if ( nBeginBeep || (nBeepControlCount && (idxBeepControl != 0xFF)) ) {
+	if ( nBeginBeep || (nBeepControlCount && (idxBeepControl != kBEEPCONTROL_NOBEEP)) ) {
 		// We are beeping
 		
 		uint8_t nDoNextBeepStructure = 0;
@@ -240,7 +251,6 @@ void beepProcessing() {
 			idxBeepControl = 0;
 			nBeepTimer = 0;
 			nDoNextBeepStructure = 1;
-			nBeginBeep = 0;
 		} else {
 			if (nBeepAudible) {
 				if (++nBeepTimer > anBeepControl[idxBeepControl].nAudibleCount) {
@@ -252,20 +262,34 @@ void beepProcessing() {
 					} else {
 						// Proceed to next beep structure
 						nDoNextBeepStructure = 1;
-						idxBeepControl++;
 					}
 				} // else: still doing audible
 			} else { // Silent part
 				if (++nBeepTimer > anBeepControl[idxBeepControl].nSilentCount) {
 					// Proceed to next beep structure
 					nDoNextBeepStructure = 1;
-					idxBeepControl++;
 				} // else: still doing silent
 			}
 		}
 		
 		if (nDoNextBeepStructure) {
 			nBeepTimer = 0;
+
+			if (!nBeginBeep) {
+				switch (anBeepControl[idxBeepControl].idxNextBeep) {
+					case kIDXNEXTBEEP_NEXT : 
+						idxBeepControl++;
+						break;
+					case kIDXNEXTBEEP_STOP : 
+						idxBeepControl=nBeepControlCount;
+						break;
+					default:
+						idxBeepControl = anBeepControl[idxBeepControl].idxNextBeep;
+				}
+			} else {
+				nBeginBeep = 0;
+			}
+			
 			if (idxBeepControl < nBeepControlCount) {
 				nBeepAudible = 1;
 				TCNT2  = 0;            				// 	Initial counter value
@@ -314,7 +338,7 @@ void beepProcessing() {
 				kSPEAKER_DDR |= 1<<kSPEAKER_PIN;			/* Connect the OC PIN */
 			} else {
 				// Done beeping
-				idxBeepControl = 0xFF;
+				idxBeepControl = kBEEPCONTROL_NOBEEP;
 				nBeepControlCount = 0;
 				
 				beepTurnOff();
@@ -327,6 +351,7 @@ void beepA() {
 	anBeepControl[0].nFreq = 2000;
 	anBeepControl[0].nAudibleCount = 1;
 	anBeepControl[0].nSilentCount = 0;
+	anBeepControl[0].idxNextBeep = kIDXNEXTBEEP_STOP;
 	nBeepControlCount = 1;
 	nBeginBeep = 1;
 }
@@ -335,18 +360,22 @@ void beepB() {
 	anBeepControl[0].nFreq = 440;
 	anBeepControl[0].nAudibleCount = 16;
 	anBeepControl[0].nSilentCount = 0;
+	anBeepControl[0].idxNextBeep = kIDXNEXTBEEP_NEXT;
 	
 	anBeepControl[1].nFreq = 554;
 	anBeepControl[1].nAudibleCount = 16;
 	anBeepControl[1].nSilentCount = 0;
+	anBeepControl[1].idxNextBeep = kIDXNEXTBEEP_NEXT;
 	
 	anBeepControl[2].nFreq = 659;
 	anBeepControl[2].nAudibleCount = 16;
 	anBeepControl[2].nSilentCount = 0;
+	anBeepControl[2].idxNextBeep = kIDXNEXTBEEP_NEXT;
 	
 	anBeepControl[3].nFreq = 880;
 	anBeepControl[3].nAudibleCount = 32;
 	anBeepControl[3].nSilentCount = 0;
+	anBeepControl[3].idxNextBeep = kIDXNEXTBEEP_STOP;
 	
 	nBeepControlCount = 4;
 	nBeginBeep = 1;
@@ -356,6 +385,7 @@ void beepC_lowlong() {
 	anBeepControl[0].nFreq = 220;
 	anBeepControl[0].nAudibleCount = 64;
 	anBeepControl[0].nSilentCount = 0;
+	anBeepControl[0].idxNextBeep = kIDXNEXTBEEP_STOP;
 	nBeepControlCount = 1;
 	nBeginBeep = 1;
 }
@@ -364,16 +394,20 @@ void beepD_higshort() {
 	anBeepControl[0].nFreq = 800;
 	anBeepControl[0].nAudibleCount = 32;
 	anBeepControl[0].nSilentCount = 0;
+	anBeepControl[0].idxNextBeep = kIDXNEXTBEEP_STOP;
 	nBeepControlCount = 1;
 	nBeginBeep = 1;
 }
 
 void beepE_timerexpired() {
-	for (int i = 0; i<6; i++) {
+	for (int i = 0; i<5; i++) {
 		anBeepControl[i].nFreq = 1000;
 		anBeepControl[i].nAudibleCount = 16;
 		anBeepControl[i].nSilentCount = 4;
+		anBeepControl[i].idxNextBeep = kIDXNEXTBEEP_NEXT;
 	}
+	anBeepControl[4].idxNextBeep = 0;
+	anBeepControl[4].nSilentCount = 80;
 	nBeepControlCount = 5;
 	nBeginBeep = 1;
 }
@@ -793,6 +827,8 @@ ISR(TIMER1_COMPA_vect) {
 					// 3. Ignoring encoder in the opposite direction
 					nEncoderRotationIgnoreTickCount = INPUT_IGNORE_ENCODER_OPPDIR_TICK_COUNT;
 				}
+				// Kill sounds()
+				beepStop();
 			} else {
 				// This is a release event
 				if (nIgnoreKeyRelease) {
@@ -819,6 +855,8 @@ ISR(TIMER1_COMPA_vect) {
 							}
 						}
 					}
+					// Kill sounds()
+					beepStop();
 				}
 					
 			}
@@ -844,6 +882,8 @@ ISR(TIMER1_COMPA_vect) {
 					}
 					nEncoderRotationIgnoreTickCount = INPUT_IGNORE_ENCODER_OPPDIR_TICK_COUNT;
 				}
+				// Kill sounds()
+				beepStop();
 			} else {
 				// This is a release event
 				if (nIgnoreKeyRelease) {
@@ -867,6 +907,9 @@ ISR(TIMER1_COMPA_vect) {
 						}
 						nRegime = kREGIME_DISPLAYVALUES;		// Change the regime
 						beepD_higshort();						// Audio indicator
+					} else {
+						// Kill sounds()
+						beepStop();
 					}
 				}
 			}
