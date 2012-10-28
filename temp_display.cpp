@@ -157,7 +157,7 @@ volatile	uint32_t	nTimingCount;								// Count for the purposes of displaying a
 // Led control
 
 
-#define kDISPVALUE_COUNT				6
+#define kDISPVALUE_COUNT				4
 #define kIDXDISPVALUE_SETTING			kDISPVALUE_COUNT
 #define kIDXDISPVALUE_TIMER				0
 #define kDISPVALUE_NOVALUEAVAILABLE		0xFFFF
@@ -204,6 +204,48 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 		}
 	}
 }
+
+//////////////////////////////////////////////
+// ADC stuff
+
+#define ADC_VBITS	14
+
+#if ADC_VBITS==13
+// Virtual 13-bit ADC settings
+#define kSAMPLE_COUNT	64
+#define kDECIMATE_RIGHTSHIFT	3
+#define kADV_TEMPCONVERT_MULT	0.125
+#elif ADC_VBITS==14
+// Virtual 14-bit ADC settings
+#define kSAMPLE_COUNT	256
+#define kDECIMATE_RIGHTSHIFT	4
+#define kADV_TEMPCONVERT_MULT	0.0625
+#endif 
+
+#define kADC_COUNT		3
+
+			int8_t aintTempAdjust[kADC_COUNT] = {0, 0};
+			uint32_t	anADCRead[kADC_COUNT];  					// 	Values read from the ADC
+			uint16_t	anSampleCount[kADC_COUNT]; 	 				// 	Number of samples read from the ADC
+			uint8_t		idxADCValue;
+			uint8_t		ADMUXbase;									// ADMUX without the channel bits
+
+uint16_t tempFromADC(uint16_t intADCValue) {
+	/* 	Michaelis-Menten Isotope Displacement Double ([Hot] subsumed) With Offset
+		y = a / (b + x) + c / (d + x) + Offset
+		Fri Jul 13 15:52:38 2012 local server time
+	*/
+	double a = -1.7317894461536247E+05;
+	double b = -1.5625932997339971E+03;
+	double c = -1.9589674327464432E+04;
+	double d = 1.4053861754270164E+02;
+	double Offset = 1.5684078545920563E+01;
+	double ADCValueStart = intADCValue * kADV_TEMPCONVERT_MULT;
+	double fRetVal;
+	fRetVal = (a / (b + ADCValueStart) + c / (d + ADCValueStart) ) + Offset;
+	return round(fRetVal);
+}
+
 
 //////////////////////////////////////////////
 // Beeps
@@ -638,18 +680,51 @@ int main(void) {
 	*/
 	OCR1A = F_CPU / TIMER1_OCR1A_FPU_DIV;
 		
-	
+	// Start the ADC
+	//ADMUXbase = (1<<REFS0);	// ADMUX bits
+	ADMUXbase = 0			// ADMUX bits
+		|(0<<REFS1)			//	REFS1
+		|(1<<REFS0)			//	REFS0
+							//	ADLAR	left-adjust
+							//	Reserved
+							//	MUX3
+							//	MUX2
+							//	MUX1
+							//	MUX0
+		;
+	ADMUX = ADMUXbase;
+	ADCSRA = 0				// ADSRA bits
+		|(1<<ADEN)			// ADEN: ADC Enabled
+							// ADSC: Start
+							// ADATE: Auto-trigger
+							// ADIF: Conversion ready signal
+		|(1<<ADIE)			// ADIE: Interrupt enabled
+		|(1<<ADPS2)			// ADPS2: Prescaler bit
+		|(1<<ADPS1)			// ADPS1: Prescaler bit
+		|(1<<ADPS0);		// ADPS0: Prescaler bit
+	//ADCSRB = 0;			// ADCSRB is irrelevant when ADATE is not set
+	DIDR0 = 0xFF;			// Digital input buffer disable
+	// Turn off digital input on the ADC pins
+	for (uint8_t i = 0; i<kADC_COUNT; i++) {
+		DIDR0 |= 1<<(ADC0D+i);
+	}
+	ADCSRA |= (1<<ADSC);	//Start converting
+		
+
 	sei();								//	Start interrupt handling
+	
 	
 	uint16_t nDisplayValue = 0; 
 	uint16_t nDispCounter = 0;
 	
-    if (kDISPVALUE_COUNT > 0) { setDisplayValue(0, 123);	}
-    if (kDISPVALUE_COUNT > 1) { setDisplayValue(1, 216);	}
-    if (kDISPVALUE_COUNT > 2) { setDisplayValue(2, 40);	}
-    if (kDISPVALUE_COUNT > 3) { setDisplayValue(3, 255);	}
-    if (kDISPVALUE_COUNT > 4) { setDisplayValue(4, 128);	}
-    if (kDISPVALUE_COUNT > 5) { setDisplayValue(5, 101); 	}
+	if (0) {
+		if (kDISPVALUE_COUNT > 0) { setDisplayValue(0, 123);	}
+		if (kDISPVALUE_COUNT > 1) { setDisplayValue(1, 216);	}
+		if (kDISPVALUE_COUNT > 2) { setDisplayValue(2, 40);	}
+		if (kDISPVALUE_COUNT > 3) { setDisplayValue(3, 255);	}
+		if (kDISPVALUE_COUNT > 4) { setDisplayValue(4, 128);	}
+		if (kDISPVALUE_COUNT > 5) { setDisplayValue(5, 101); 	}
+	}
 	
 	// Turn off the speaker
 	beepTurnOff();
@@ -701,6 +776,33 @@ int main(void) {
 		
 }
 
+
+// Interrupt routine for servicing ADC
+ISR(ADC_vect)
+{
+	for (uint8_t i = 0; i<kDISPVALUE_COUNT; i++) {
+		setDisplayValue(i, aintDisplayValue[i]+1);
+	}
+	aintDisplaySegments[1][1] = LED7OUT_B;
+	
+	uint8_t intADCLo = ADCL;
+	uint8_t intADCHi = ADCH;
+	uint16_t intADCfullValue = ((intADCHi << 8) + intADCLo);
+
+	// Update the samples
+	anADCRead[idxADCValue] += intADCfullValue;
+	if (++anSampleCount[idxADCValue] >= kSAMPLE_COUNT) {
+		uint32_t nNewValue = anADCRead[idxADCValue] >> kDECIMATE_RIGHTSHIFT;
+		setDisplayValue(idxADCValue, tempFromADC(nNewValue) + aintTempAdjust[idxADCValue]);
+		anADCRead[idxADCValue] = 0;
+		anSampleCount[idxADCValue] = 0;
+	}
+	
+	//~ // Start the next conversion
+	if (++idxADCValue >= kADC_COUNT) { idxADCValue = 0; }
+	ADMUX = ADMUXbase | idxADCValue;
+	ADCSRA |= (1<<ADSC);	//Start converting
+} 
 
 // Interrupt routine for servicing LED refreshment
 ISR(TIMER0_COMPA_vect) {
