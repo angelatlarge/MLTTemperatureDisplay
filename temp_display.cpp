@@ -145,6 +145,9 @@ volatile	uint16_t	nValueCycleCount;							// Count of for the purposes of value 
 volatile	uint32_t	nTimingCount;								// Count for the purposes of displaying a timer
 			uint16_t	nDisplayTimerValue; 
 			uint8_t		nMinuteTimerDot; 
+volatile	uint16_t 	nTimerSeconds; 
+volatile	uint8_t 	nTimerMinutes;
+			
 			uint8_t		nCountUp = 1; 
 #define COUNTDOWNTIMER_MAXMINUTES			120			
 			
@@ -154,6 +157,13 @@ volatile	uint32_t	nTimingCount;								// Count for the purposes of displaying a
 																		since the speed of the slow timer is independent of the CPU speed
 																		this value need not be adjusted for FCPU 
 																		*/
+
+volatile	uint32_t	nBthUpdateCount;
+#define KEYTIMER_MAX_BTHUPDATECOUNT	515									/* Update bluetooth every 1.5 seconds
+																		since the speed of the slow timer is independent of the CPU speed
+																		this value need not be adjusted for FCPU 
+																	*/
+
 
 
 /////////////////////////////////////////////////////////////////////
@@ -231,6 +241,7 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 			int8_t aidxADC2DispValue[kADC_COUNT] = {1, 2};		// Index of ADC value to Disp value index
 			uint32_t	anADCRead[kADC_COUNT];  					// 	Values read from the ADC
 			uint16_t	anSampleCount[kADC_COUNT]; 	 				// 	Number of samples read from the ADC
+volatile	uint8_t		anLastDisplayedValue[kADC_COUNT];  			// 	Final values
 			uint8_t		idxADCValue;
 			uint8_t		ADMUXbase;									// ADMUX without the channel bits
 
@@ -551,6 +562,27 @@ inline void setIndicator(uint8_t idxDisplayValue, uint8_t idxIndicatorLed, uint8
 
 //////////////////////////////////////////////
 // Main
+inline void doBthUpdate() {
+	static char strValue[10];
+	fputs("Timer:", stdout);
+	itoa(nTimerMinutes, strValue, 10);
+	fputs(strValue, stdout);
+	fputs(":", stdout);
+	itoa(nTimerSeconds % 60, strValue, 10);
+	fputs(strValue, stdout);
+	for (int i=0; i<kADC_COUNT; i++) {
+		fputs(" ADC", stdout);
+		itoa(i, strValue, 10);
+		fputs(strValue, stdout);
+		fputs(":", stdout);
+		itoa(anLastDisplayedValue[i], strValue, 10);
+		fputs(strValue, stdout);
+	}
+	puts("");
+}
+
+//////////////////////////////////////////////
+// Main
 
 int main(void) {
 
@@ -804,6 +836,8 @@ int main(void) {
 	}
 	
 	while (1) {
+		doBthUpdate();
+		_delay_ms(1000);		
 	}
 	return 0;
 }
@@ -822,7 +856,8 @@ ISR(ADC_vect)
 	anADCRead[idxADCValue] += intADCfullValue;
 	if (++anSampleCount[idxADCValue] >= kSAMPLE_COUNT) {
 		uint32_t nNewValue = anADCRead[idxADCValue] >> kDECIMATE_RIGHTSHIFT;
-		setDisplayValue(aidxADC2DispValue[idxADCValue], tempFromADC(nNewValue) + aintTempAdjust[idxADCValue]);
+		anLastDisplayedValue[idxADCValue] = tempFromADC(nNewValue) + aintTempAdjust[idxADCValue];
+		setDisplayValue(aidxADC2DispValue[idxADCValue], anLastDisplayedValue[idxADCValue]);
 		anADCRead[idxADCValue] = 0;
 		anSampleCount[idxADCValue] = 0;
 	}
@@ -1084,6 +1119,8 @@ ISR(TIMER1_COMPA_vect) {
 		/ 	TIMER1_OCR1A_FPU_DIV
 		;
 	uint32_t nNewMinuteTimerDot = nTimebase / 2 % 2;
+	uint16_t nSeconds = nTimebase / 60;
+	uint8_t nMinutes = nSeconds / 60;
 	if (nNewMinuteTimerDot != nMinuteTimerDot) {
 		nMinuteTimerDot = nNewMinuteTimerDot;
 		// Update the minute timer display value
@@ -1116,11 +1153,11 @@ ISR(TIMER1_COMPA_vect) {
 			}
 		}
 	}
+	
 	// Update beeping
 	if (nTimebase % 2) {
 		beepProcessing();
 	}
-	
 }
 
 
