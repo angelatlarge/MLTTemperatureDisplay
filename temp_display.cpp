@@ -1,3 +1,8 @@
+/*
+	Clock debug:
+		At SPEEDUP8X, timer is fine, but displays incorrectly on bluetooth
+*/
+
 #define SPEEDUP8X
 //~ #undef SPEEDUP8X
 #ifdef SPEEDUP8X
@@ -564,7 +569,8 @@ inline void setIndicator(uint8_t idxDisplayValue, uint8_t idxIndicatorLed, uint8
 // Main
 inline void doBthUpdate() {
 	static char strValue[10];
-	fputs("Timer:", stdout);
+	fputs("@", stdout);
+	fputs(((nCountUp)?"+":"-"), stdout);
 	itoa(nTimerMinutes, strValue, 10);
 	fputs(strValue, stdout);
 	fputs(":", stdout);
@@ -1118,23 +1124,24 @@ ISR(TIMER1_COMPA_vect) {
 		*	16		 
 		/ 	TIMER1_OCR1A_FPU_DIV
 		;
+	nCountTimesPrescale = nCountTimesPrescale / TIMER1_OCR1A_FPU_DIV;
 	uint32_t nNewMinuteTimerDot = nTimebase / 2 % 2;
-	uint16_t nSeconds = nTimebase / 60;
-	uint8_t nMinutes = nSeconds / 60;
+	nTimerSeconds = nCountTimesPrescale;
+	nTimerMinutes = nTimerSeconds / 60;
+	
 	if (nNewMinuteTimerDot != nMinuteTimerDot) {
 		nMinuteTimerDot = nNewMinuteTimerDot;
 		// Update the minute timer display value
 		nDisplayTimerValue = 
 				nCountTimesPrescale
-			/ 	TIMER1_OCR1A_FPU_DIV
 			/ 	60 					/* 60 seconds per minute */
 			;
 		uint8_t idxLEDdot = 0;
 		if (nDisplayTimerValue < 10) {
 			// Display seconds, blink dot on the first led
 			nDisplayTimerValue = 
-					nDisplayTimerValue * 100							// Minutes
-				+ 	nCountTimesPrescale / TIMER1_OCR1A_FPU_DIV % 60;	// Seconds
+					nDisplayTimerValue * 100			// Minutes
+				+ 	nCountTimesPrescale % 60;			// Seconds
 			idxLEDdot = 2;
 		} else {
 			// Display minutes only, blink last dot 
