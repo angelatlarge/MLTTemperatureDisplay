@@ -23,6 +23,7 @@
 #define LEDSEG_F	(1<<6)	
 #define LEDSEG_G	(1<<7)	
 
+#define kINDICATOR_COUNT 	7
 #define IND0_R		LEDSEG_D	
 #define IND0_G		LEDSEG_E	
 #define IND0_B		LEDSEG_F	
@@ -33,6 +34,7 @@ uint8_t	aintIndicatorSegmentR[2] = {IND0_R, IND1_R};
 uint8_t	aintIndicatorSegmentG[2] = {IND0_G, IND1_G};
 uint8_t	aintIndicatorSegmentB[2] = {IND0_B, IND1_B};
 
+uint8_t aintIndicatorCathode[kINDICATOR_COUNT] = {6, 6, 5, 5, 7, 7, 1};
 // Font and digits for 7segment
 // ... digits
 #define LED7OUT_0		LEDSEG_A | LEDSEG_B | LEDSEG_C | LEDSEG_D | LEDSEG_E | LEDSEG_F
@@ -47,8 +49,9 @@ uint8_t	aintIndicatorSegmentB[2] = {IND0_B, IND1_B};
 #define LED7OUT_9		LEDSEG_A | LEDSEG_B | LEDSEG_C | LEDSEG_D | LEDSEG_F | LEDSEG_G
 // ... letters
 #define LED7OUT_A		LEDSEG_A | LEDSEG_F | LEDSEG_B | LEDSEG_G | LEDSEG_E | LEDSEG_C
-#define LED7OUT_B		LEDSEG_A | LEDSEG_F | LEDSEG_G | LEDSEG_E | LEDSEG_C | LEDSEG_D
+#define LED7OUT_B		LEDSEG_F | LEDSEG_G | LEDSEG_E | LEDSEG_C | LEDSEG_D
 #define LED7OUT_C		LEDSEG_A | LEDSEG_F | LEDSEG_E | LEDSEG_D
+#define LED7OUT_D		LEDSEG_B | LEDSEG_G | LEDSEG_E | LEDSEG_C | LEDSEG_D
 #define LED7OUT_E		LEDSEG_A | LEDSEG_F | LEDSEG_G | LEDSEG_E | LEDSEG_D
 #define LED7OUT_F		LEDSEG_A | LEDSEG_F | LEDSEG_G | LEDSEG_E
 // ... symbols
@@ -171,7 +174,7 @@ volatile	uint8_t		idxDisplayValue = 0;
 volatile	uint8_t		aintDisplaySegments[kDISPVALUE_COUNT+1][kDISPVALUE_CATHODECOUNT];   // 	Value to be displayed on each led
 																							// 	Extra value is for other regimes
 volatile	uint8_t		nResetting;
-volatile	uint8_t 	idxActiveCathode = 0;
+//~ volatile	uint8_t 	idxActiveCathode = 0;
 
 inline uint16_t getDisplayValue(uint8_t idxDispValue) {
 	return aintDisplayValue[idxDispValue];
@@ -222,9 +225,10 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 #define kADV_TEMPCONVERT_MULT	0.0625
 #endif 
 
-#define kADC_COUNT		3
+#define kADC_COUNT		2
 
 			int8_t aintTempAdjust[kADC_COUNT] = {0, 0};
+			int8_t aidxADC2DispValue[kADC_COUNT] = {1, 2};		// Index of ADC value to Disp value index
 			uint32_t	anADCRead[kADC_COUNT];  					// 	Values read from the ADC
 			uint16_t	anSampleCount[kADC_COUNT]; 	 				// 	Number of samples read from the ADC
 			uint8_t		idxADCValue;
@@ -263,19 +267,20 @@ typedef struct {
 	uint16_t	nSilentCount;
 	uint8_t		idxNextBeep;
 } beepStruct;
-	beepStruct	anBeepControl[kBEEP_CONTROL_MAXENTRIES];
+volatile		beepStruct	anBeepControl[kBEEP_CONTROL_MAXENTRIES];
 #define kBEEPCONTROL_NOBEEP	0xFF
-	uint8_t		idxBeepControl = kBEEPCONTROL_NOBEEP;
-	uint8_t		nBeepControlCount;
-	uint16_t	nBeepTimer;
-	uint8_t		nBeepAudible;
-	uint8_t 	nBeginBeep;
+volatile		uint8_t		idxBeepControl = kBEEPCONTROL_NOBEEP;
+volatile		uint8_t		nBeepControlCount;
+				uint16_t	nBeepTimer;
+				uint8_t		nBeepAudible;
+volatile		uint8_t 	nBeginBeep;
 
 
 inline void beepTurnOff() {
 	kSPEAKER_DDR &= ~(1<<kSPEAKER_PIN);			/* turn off the OC PIN */
 	kSPEAKER_PORT |= 1<<kSPEAKER_PIN;			/* set this pin high */
 	TCCR2A &= ~((1<<COM2A1) | (1<<COM2A0));		/* Normal operation: OC pin disconnected */
+	TCCR2B = 0; 								// Timer stopped
 }	
 
 void beepStop() {
@@ -543,6 +548,7 @@ inline void setIndicator(uint8_t idxDisplayValue, uint8_t idxIndicatorLed, uint8
 	;
 }
 
+
 //////////////////////////////////////////////
 // Main
 
@@ -588,6 +594,7 @@ int main(void) {
 	//~ BTH_PINKEY_PORT &= ~(BTH_PINKEY_PIN);	// Lower the key line to make bluetooth transparent
 #endif
 	
+
 	// Run at 8mhz
 #ifdef SPEEDUP8X
 	CLKPR = 1<<CLKPCE;
@@ -595,7 +602,6 @@ int main(void) {
 #endif
 	
 	DDRD = 0xFF;
-	
 	
 	//~ sr.writeByte(1, 0xFF);	// Enable all common cathodes
 	//~ sr.writeByte(0, 0xFF);	// Nothing is on
@@ -608,6 +614,7 @@ int main(void) {
 		sr.setOutput(1);
 	}
 	
+
 	/* 	Hi-res timebase - using timer 0
 		Used for display PWM - 
 		Using 8 bit timer because this update happens fast, 
@@ -620,7 +627,7 @@ int main(void) {
 	//~ TCCR0B = (1<CS02) | (0<<CS01) | (1<<CS00);		// Prescaler = 8
 	TCCR0B = (0<CS02) | (1<<CS01) | (1<<CS00);		// Prescaler = 8
 	//~ OCR0A = F_CPU/1024/1000;						// 	Refresh every second
-	OCR0A = 0x20;										// 	About 1000 times per second (1Khz)
+	OCR0A = 0x40;										// 	About 1000 times per second (1Khz)
 	//~ OCR0A = 0xFF;										// 	About 1000 times per second (1Khz)
 	TIMSK0 |= (1<<OCIE0A);								//	Enable interrupts on compare match A
 
@@ -634,8 +641,8 @@ int main(void) {
 	
 	// Set the indicators
 	
-	for (int idxDisplayValue = 0; idxDisplayValue<kDISPVALUE_COUNT; idxDisplayValue++) {
-		setIndicator(idxDisplayValue, idxDisplayValue, 0, 1, 0);
+	for (int i = 0; i<kDISPVALUE_COUNT; i++) {
+		setIndicator(i, i, 0, 1, 0);
 	}
 
 	// Set up the inputs
@@ -650,7 +657,7 @@ int main(void) {
 														// so set them up to be high
 	}
 	intKeyState = INPUT_ALL;
-
+	
 	/* 	Low res timebase - using timer 1
 		Used for 
 			cycling between readings 
@@ -692,27 +699,52 @@ int main(void) {
 							//	MUX1
 							//	MUX0
 		;
-	ADMUX = ADMUXbase;
+	ADMUX = ADMUXbase
+		|(0<<MUX3)
+		|(0<<MUX2)
+		|(0<<MUX1)
+		|(0<<MUX0)
+		;					// Start with ADC 0;
 	ADCSRA = 0				// ADSRA bits
 		|(1<<ADEN)			// ADEN: ADC Enabled
 							// ADSC: Start
-							// ADATE: Auto-trigger
+		|(0<<ADATE)			// ADATE: Auto-trigger
 							// ADIF: Conversion ready signal
 		|(1<<ADIE)			// ADIE: Interrupt enabled
 		|(1<<ADPS2)			// ADPS2: Prescaler bit
-		|(1<<ADPS1)			// ADPS1: Prescaler bit
-		|(1<<ADPS0);		// ADPS0: Prescaler bit
-	//ADCSRB = 0;			// ADCSRB is irrelevant when ADATE is not set
+		|(0<<ADPS1)			// ADPS1: Prescaler bit
+		|(1<<ADPS0)			// ADPS0: Prescaler bit
+		;
+	ADCSRB = 0;			// ADCSRB is irrelevant when ADATE is not set
 	DIDR0 = 0xFF;			// Digital input buffer disable
+	PRR &= ~(1<<PRADC);		// Turn off ADC power disable
 	// Turn off digital input on the ADC pins
 	for (uint8_t i = 0; i<kADC_COUNT; i++) {
 		DIDR0 |= 1<<(ADC0D+i);
 	}
-	ADCSRA |= (1<<ADSC);	//Start converting
-		
-
-	sei();								//	Start interrupt handling
+	// Initialize the ADC
+	for (uint8_t i = 0; i<kADC_COUNT; i++) {
+		setDisplayValue(i, kDISPVALUE_NOVALUEAVAILABLE);
+		anSampleCount[i] = 0;
+	}
+	idxADCValue = 0;					// Initialize the index
+	//Start converting
+	setDisplayValue(1, 128);
+	ADCSRA = 	
+		 (1<<ADEN)			// ADEN: ADC Enabled
+		|(1<<ADSC) 			// ADSC: Start
+		|(0<<ADATE)			// ADATE: Auto-trigger
+							// ADIF: Conversion ready signal
+		|(1<<ADIE)			// ADIE: Interrupt enabled
+		|(1<<ADPS2)			// ADPS2: Prescaler bit
+		|(1<<ADPS1)			// ADPS1: Prescaler bit
+		|(1<<ADPS0)			// ADPS0: Prescaler bit
+		;
+	//~ ADCSRA |= (1<<ADSC) ;	
 	
+	setDisplayValue(1, 129);
+	sei();								//	Start interrupt handling
+	setDisplayValue(1, 130);
 	
 	uint16_t nDisplayValue = 0; 
 	uint16_t nDispCounter = 0;
@@ -735,7 +767,6 @@ int main(void) {
 	//~ anData[1] = 0x40;
 	//~ sr.writeData(0, 2, anData);
 	//~ sr.setOutput(1);
-	
 	
 	//~ while(1) {
 	//~ }
@@ -771,20 +802,18 @@ int main(void) {
 			//~ }
 		//~ }
 	}
+	
 	while (1) {
 	}
-		
+	return 0;
 }
 
 
+
+//////////////////////////////////////////////
 // Interrupt routine for servicing ADC
 ISR(ADC_vect)
 {
-	for (uint8_t i = 0; i<kDISPVALUE_COUNT; i++) {
-		setDisplayValue(i, aintDisplayValue[i]+1);
-	}
-	aintDisplaySegments[1][1] = LED7OUT_B;
-	
 	uint8_t intADCLo = ADCL;
 	uint8_t intADCHi = ADCH;
 	uint16_t intADCfullValue = ((intADCHi << 8) + intADCLo);
@@ -793,7 +822,7 @@ ISR(ADC_vect)
 	anADCRead[idxADCValue] += intADCfullValue;
 	if (++anSampleCount[idxADCValue] >= kSAMPLE_COUNT) {
 		uint32_t nNewValue = anADCRead[idxADCValue] >> kDECIMATE_RIGHTSHIFT;
-		setDisplayValue(idxADCValue, tempFromADC(nNewValue) + aintTempAdjust[idxADCValue]);
+		setDisplayValue(aidxADC2DispValue[idxADCValue], tempFromADC(nNewValue) + aintTempAdjust[idxADCValue]);
 		anADCRead[idxADCValue] = 0;
 		anSampleCount[idxADCValue] = 0;
 	}
@@ -806,7 +835,7 @@ ISR(ADC_vect)
 
 // Interrupt routine for servicing LED refreshment
 ISR(TIMER0_COMPA_vect) {
-	//~ static uint8_t idxActiveCathode = 1;
+	static uint8_t idxActiveCathode = 0;
 	
 #	ifdef PARALLEL_595
 	sr.setOutput(0);
@@ -828,6 +857,7 @@ ISR(TIMER0_COMPA_vect) {
 	anData[1] = nCathodeVal;
 	sr.writeData(0, 2, anData);
 	sr.setOutput(1);
+	
 	if (++idxActiveCathode >= kDISPVALUE_CATHODECOUNT) {
 		idxActiveCathode = 0;
 	}
