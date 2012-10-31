@@ -1,12 +1,22 @@
 /*
 	Clock debug:
-		At SPEEDUP8X, timer is fine, but displays incorrectly on bluetooth
+		At SPEEDUP8X, timer is fine, and Bth display is fine too
+		If the CKDIV8 fuse isn't set, not defining SPEEDUP8X means bad news
+		However, even if CLKPR register is set manually, serial COMMs / Bluetooth 
+		does not work correctly if SPEEDUP8X isn't set.
+		
+	Adding a crystal
+		* SR595 OE was on pin 5 (PD3). Moved to pin 13 (PD7)
+		* Speaker was on pin 17 (OC2A/PB3). Moved to pin 5 (OC2B/PD3)
+		* Encoder was on pins 9, 10, 19 (PB6. PB7, PB5). 
+		  The rotation switches are moved to pins 17 (PB3) and 15 (PB1)
+		& The encoder and the 
 */
 
 #define SPEEDUP8X
 //~ #undef SPEEDUP8X
 #ifdef SPEEDUP8X
-#define F_CPU 8000000UL /* 1 MHz Internal Oscillator */
+#define F_CPU 8000000UL /* 8 MHz Internal Oscillator */
 #else
 #define F_CPU 1000000UL /* 1 MHz Internal Oscillator */
 #endif
@@ -637,6 +647,9 @@ int main(void) {
 #ifdef SPEEDUP8X
 	CLKPR = 1<<CLKPCE;
 	CLKPR = 0;
+#else	
+	CLKPR = 1<<CLKPCE;
+	CLKPR = 3;
 #endif
 	
 	DDRD = 0xFF;
@@ -843,7 +856,7 @@ int main(void) {
 	
 	while (1) {
 		doBthUpdate();
-		_delay_ms(1000);		
+		_delay_ms(300);		
 	}
 	return 0;
 }
