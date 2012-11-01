@@ -130,6 +130,7 @@ sr595 sr(
 		&SR74XX595_PORT,        // ptrPort
 		&SR74XX595_DDR,        // ptrDir
 		SR74XX595_OE, 		// nOE
+		1, 					// nInvertOE
 		SR74XX595_DS, 		// nDS
 		SR74XX595_SHCP, 	// nSHCP
 		STCP				// anSTCP
