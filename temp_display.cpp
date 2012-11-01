@@ -24,6 +24,11 @@
 			7SEG2  = SR595 Q2
 			7SEG3  = SR595 Q3
 		
+	Channel		Wire	What?
+	2			Purple	RESET
+	4			Blue	OE
+	1			Black	output to SR595OE
+	
 */
 
 #define SPEEDUP8X
@@ -43,6 +48,8 @@
 #include <avr/interrupt.h>
 #include "sr595.h"
 //~ #include <math.h>
+
+#define READ_BTH
 
 #define LEDSEG_A	(1<<5)	
 #define LEDSEG_B	(1<<4)	
@@ -993,30 +1000,34 @@ int main(void) {
 		//~ }
 	}
 	
-	char strCommand[20];
-	char *ptrCmdChar = &strCommand[0];
+	#define MAX_CMD_LENGTH	20
+	char strCommand[MAX_CMD_LENGTH+1];
+	uint8_t idxChar = 0;
 	while (1) {
 		if (nBthUpdateCount > KEYTIMER_MAX_BTHUPDATECOUNT) {
 			nBthUpdateCount = 0;
 			doBthUpdate();
 		}
+#		ifdef READ_BTH			
 		if (UCSR0A & (1<<RXC0)) {
-/*			
-			loop_until_bit_is_set(UCSR0A, RXC0); // Wait until data exists. 
-			return UDR0;
-*/			
 			// Read serial character
-			*ptrCmdChar = UDR0;
-			if ( (*ptrCmdChar == '\r') || (*ptrCmdChar == '\n') ) {
+			char charRead = UDR0;
+		
+			if ( (charRead == '\r') || (charRead == '\n') ) {
 				// End of command
-				*ptrCmdChar = 0x00;
+				strCommand[idxChar] = 0x00;
 				fputs ("You commanded ", stdout);
 				puts (strCommand);
-				ptrCmdChar = &strCommand[0];
+				idxChar = 0;
 			} else {
-				ptrCmdChar++;
+				if (idxChar < MAX_CMD_LENGTH) {
+					strCommand[idxChar++] = charRead;
+				} else {
+					// Command too long, discard the character
+				}
 			}
 		}
+#		endif /* READ_BTH */
 		
 		//~ _delay_ms(300);		
 	}
