@@ -283,7 +283,7 @@ uint16_t tempFromADC(uint16_t intADCValue) {
 
 #define SPKOUT_OC2A	1
 #define SPKOUT_OC2B	2
-#define SPEAKER_OUT_PIN SPKOUT_OC2A
+#define SPEAKER_OUT_PIN SPKOUT_OC2B
 
 #if SPEAKER_OUT_PIN == 0
 #error Programming error in speaker settings
@@ -292,13 +292,11 @@ uint16_t tempFromADC(uint16_t intADCValue) {
 #define kSPEAKER_PORT			PORTB
 #define kSPEAKER_DDR			DDRB
 #define kSPEAKER_PIN			3
-#define kSPEAKER_OCR2			OCR2A
 #elif SPEAKER_OUT_PIN == SPKOUT_OC2B
 #warning SPEAKER_OUT_PIN is set to SPKOUT_OC2B
 #define kSPEAKER_PORT			PORTD
 #define kSPEAKER_DDR			DDRD
 #define kSPEAKER_PIN			3
-#define kSPEAKER_OCR2			OCR2B
 #else
 #error Unknown SPEAKER_OUT_PIN
 #endif
@@ -311,9 +309,6 @@ uint16_t tempFromADC(uint16_t intADCValue) {
 #endif
 #ifndef kSPEAKER_PIN
 #error kSPEAKER_PIN is not defined
-#endif
-#ifndef kSPEAKER_OCR2
-#error kSPEAKER_OCR2 is not defined
 #endif
 
 #define kIDXNEXTBEEP_NEXT			0xFF
@@ -446,7 +441,9 @@ void beepProcessing() {
 						break;
 				}
 				// Calculate the TOP
-				kSPEAKER_OCR2 = F_CPU / nPrescaler / anBeepControl[idxBeepControl].nFreq;
+				//~ kSPEAKER_OCR2 = F_CPU / nPrescaler / anBeepControl[idxBeepControl].nFreq;
+				OCR2A = F_CPU / nPrescaler / anBeepControl[idxBeepControl].nFreq;
+				OCR2B = F_CPU / nPrescaler / anBeepControl[idxBeepControl].nFreq;
 			} else {
 				// Done beeping
 				idxBeepControl = kBEEPCONTROL_NOBEEP;
@@ -515,7 +512,7 @@ void beepE_timerexpired() {
 		anBeepControl[i].nFreq = 1000;
 		anBeepControl[i].nAudibleCount = 16;
 		anBeepControl[i].nSilentCount = 4;
-		anBeepControl[i].idxNextBeep = kIDXNEXTBEEP_NEXT;
+		anBeepControl[i].idxNextBeep = kIDXNEXTBEEP_STOP;
 	}
 	anBeepControl[4].idxNextBeep = 0;
 	anBeepControl[4].nSilentCount = 80;
@@ -535,7 +532,7 @@ void beepF_setTimer() {
 	anBeepControl[2].nFreq = 1270;
 	anBeepControl[2].nAudibleCount = 16;
 	anBeepControl[2].nSilentCount = 0;
-	anBeepControl[2].idxNextBeep = kIDXNEXTBEEP_NEXT;
+	anBeepControl[2].idxNextBeep = kIDXNEXTBEEP_STOP;
 	nBeepControlCount = 3;
 	nBeginBeep = 1;
 }
@@ -552,8 +549,17 @@ void beepG_finishSetTimer() {
 	anBeepControl[2].nFreq = 800;
 	anBeepControl[2].nAudibleCount = 16;
 	anBeepControl[2].nSilentCount = 0;
-	anBeepControl[2].idxNextBeep = kIDXNEXTBEEP_NEXT;
+	anBeepControl[2].idxNextBeep = kIDXNEXTBEEP_STOP;
 	nBeepControlCount = 3;
+	nBeginBeep = 1;
+}
+
+void beepH_440forever() {
+	anBeepControl[0].nFreq = 440;
+	anBeepControl[0].nAudibleCount = 999;
+	anBeepControl[0].nSilentCount = 0;
+	anBeepControl[0].idxNextBeep = kIDXNEXTBEEP_FIRST;
+	nBeepControlCount = 1;
 	nBeginBeep = 1;
 }
 
@@ -1011,8 +1017,7 @@ ISR(TIMER1_COMPA_vect) {
 					setIndicator(kIDXDISPVALUE_SETTING, kIDXDISPVALUE_TIMER, 0, 0, 1);	// Turn on blue led
 					break;
 				case kREGIME_SETTIMER:
-					nRegime = kREGIME_DISPLAYVALUES;		// Change the regime
-					beepG_finishSetTimer();					// Audio indicator
+					beepH_440forever();					// Audio indicator
 				}
 			}
 			nKeyPressCycleCount = 0;
