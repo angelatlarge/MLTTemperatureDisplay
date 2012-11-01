@@ -6,7 +6,7 @@
 		does not work correctly if SPEEDUP8X isn't set.
 		
 	Adding a crystal
-		* SR595 OE was on pin 5 (PD3). Moved to pin 13 (PD7)
+		* [CHECK] SR595 OE was on pin 5 (PD3). Moved to pin 13 (PD7)
 		* Speaker was on pin 17 (OC2A/PB3). Moved to pin 5 (OC2B/PD3)
 		* Encoder was on pins 9, 10, 19 (PB6. PB7, PB5). 
 		  The rotation switches are moved to pins 17 (PB3) and 15 (PB1)
@@ -83,7 +83,7 @@ uint8_t aint7segdigits[] = {LED7OUT_0, LED7OUT_1,LED7OUT_2,LED7OUT_3,LED7OUT_4,L
 #define SR74XX595_DS	02
 #define SR74XX595_SHCP	05
 #define SR74XX595_STCP0	04
-#define SR74XX595_OE	03
+#define SR74XX595_OE	07
 #define SR74XX595_STCP1	06
 
 #ifdef BTH_USE_PINKEY
@@ -280,9 +280,41 @@ uint16_t tempFromADC(uint16_t intADCValue) {
 //////////////////////////////////////////////
 // Beeps
 #define kBEEP_CONTROL_MAXENTRIES	6
-#define kSPEAKER_PORT				PORTB
-#define kSPEAKER_DDR				DDRB
-#define kSPEAKER_PIN				3
+
+#define SPKOUT_OC2A	1
+#define SPKOUT_OC2B	2
+#define SPEAKER_OUT_PIN SPKOUT_OC2B
+
+#if SPEAKER_OUT_PIN == 0
+#error Programming error in speaker settings
+#elif SPEAKER_OUT_PIN == SPKOUT_OC2A
+#warning SPEAKER_OUT_PIN is set to SPKOUT_OC2A
+#define kSPEAKER_PORT			PORTB
+#define kSPEAKER_DDR			DDRB
+#define kSPEAKER_PIN			3
+#define kSPEAKER_OCR2			OCR2A
+#elif SPEAKER_OUT_PIN == SPKOUT_OC2B
+#warning SPEAKER_OUT_PIN is set to SPKOUT_OC2B
+#define kSPEAKER_PORT			PORTD
+#define kSPEAKER_DDR			DDRD
+#define kSPEAKER_PIN			3
+#define kSPEAKER_OCR2			OCR2B
+#else
+#error Unknown SPEAKER_OUT_PIN
+#endif
+
+#ifndef kSPEAKER_PORT
+#error kSPEAKER_PORT is not defined
+#endif
+#ifndef kSPEAKER_DDR
+#error kSPEAKER_DDR is not defined
+#endif
+#ifndef kSPEAKER_PIN
+#error kSPEAKER_PIN is not defined
+#endif
+#ifndef kSPEAKER_OCR2
+#error kSPEAKER_OCR2 is not defined
+#endif
 
 #define kIDXNEXTBEEP_NEXT			0xFF
 #define kIDXNEXTBEEP_STOP			0xFE
@@ -368,18 +400,23 @@ void beepProcessing() {
 				TCNT2  = 0;            				// 	Initial counter value
 				/* CTC mode, toggle the output pin */
 				TCCR2A = 0
+#if SPEAKER_OUT_PIN == SPKOUT_OC2A
 					| 0<<COM2A1	// COM2A1
 					| 1<<COM2A0 // COM2A0
 					| 0<<COM2B1 // COM2B1
 					| 0<<COM2B0 // COM2B0
+#elif SPEAKER_OUT_PIN == SPKOUT_OC2B
+					| 0<<COM2A1	// COM2A1
+					| 0<<COM2A0 // COM2A0
+					| 0<<COM2B1 // COM2B1
+					| 1<<COM2B0 // COM2B0
+#endif
 								// -
 								// – 
 					| 1<<WGM21	// WGM21
 					| 0<<WGM20	// WGM20
 					;
-				TCCR2B = 
-					/* Prescaler = 1025	*/
-					0
+				TCCR2B = 0
 					| 0<<FOC2A 	// FOC2A 
 					| 0<<FOC2B 	// FOC2B
 								// – 
@@ -406,7 +443,7 @@ void beepProcessing() {
 						break;
 				}
 				// Calculate the TOP
-				OCR2A = F_CPU / nPrescaler / anBeepControl[idxBeepControl].nFreq;
+				kSPEAKER_OCR2 = F_CPU / nPrescaler / anBeepControl[idxBeepControl].nFreq;
 				// Connect the OC pin
 				kSPEAKER_DDR |= 1<<kSPEAKER_PIN;			/* Connect the OC PIN */
 			} else {
