@@ -6,19 +6,23 @@
 		does not work correctly if SPEEDUP8X isn't set.
 		
 	Adding a crystal
+	Need to free up pins 9 and 10 for the crystal
 		* [CHECK] SR595 OE was on pin 5 (PD3). Moved to pin 13 (PD7)
-		* Speaker was on pin 17 (OC2A/PB3). Moved to pin 5 (OC2B/PD3)
-		* Encoder was on pins 9, 10, 19 (PB6. PB7, PB5). 
+		* [CHECK] Speaker was on pin 17 (OC2A/PB3). Moved to pin 5 (OC2B/PD3)
+		* [CHECK] Encoder was on pins 9, 10, 19 (PB6. PB7, PB5). 
 		  The rotation switches are moved to pins 17 (PB3) and 15 (PB1)
-		& The encoder and the 
+
+		
 */
 
 #define SPEEDUP8X
 //~ #undef SPEEDUP8X
 #ifdef SPEEDUP8X
-#define F_CPU 8000000UL /* 8 MHz Internal Oscillator */
+#define F_CPU 16000000UL /* 8 MHz Internal Oscillator */
+//~ #define F_CPU 8000000UL /* 8 MHz Internal Oscillator */
 #else
-#define F_CPU 1000000UL /* 1 MHz Internal Oscillator */
+#define F_CPU 2000000UL /* 1 MHz Internal Oscillator */
+//~ #define F_CPU 1000000UL /* 1 MHz Internal Oscillator */
 #endif
 #include <avr/io.h>
 #include <stdlib.h>
@@ -137,8 +141,8 @@ sr595 sr(
 #define INPUTS_PIN		PINB
 #define	INPUT_BTNRIGHT		(01<<02)
 #define	INPUT_BTNLEFT		(01<<04)
-#define	INPUT_ENCODERLEFT	(01<<06)
-#define	INPUT_ENCODERRIGHT	(01<<07)
+#define	INPUT_ENCODERLEFT	(01<<01)
+#define	INPUT_ENCODERRIGHT	(01<<03)
 #define	INPUT_ENCODERBTN	(01<<05)
 #define INPUT_ALL		(INPUT_BTNRIGHT | INPUT_BTNLEFT | INPUT_ENCODERLEFT | INPUT_ENCODERRIGHT | INPUT_ENCODERBTN)
 			uint8_t		aintDebounceState[kMAX_KEYBOUNCE_CHECKS];
@@ -236,7 +240,7 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 //////////////////////////////////////////////
 // ADC stuff
 
-#define ADC_VBITS	14
+#define ADC_VBITS	15
 
 #if ADC_VBITS==13
 // Virtual 13-bit ADC settings
@@ -248,6 +252,16 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 #define kSAMPLE_COUNT	256
 #define kDECIMATE_RIGHTSHIFT	4
 #define kADV_TEMPCONVERT_MULT	0.0625
+#elif ADC_VBITS==15
+// Virtual 15-bit ADC settings
+#define kSAMPLE_COUNT	1024
+#define kDECIMATE_RIGHTSHIFT	5
+#define kADV_TEMPCONVERT_MULT	0.03125
+#elif ADC_VBITS==16
+// Virtual 16-bit ADC settings
+#define kSAMPLE_COUNT	4096
+#define kDECIMATE_RIGHTSHIFT	6
+#define kADV_TEMPCONVERT_MULT	0.015625
 #endif 
 
 #define kADC_COUNT		2
@@ -424,6 +438,15 @@ void beepProcessing() {
 				// Set the prescaler
 				uint16_t nPrescaler; 
 				switch (F_CPU) {
+					case 20000000UL-16000000UL:
+						// Prescaler = 1024
+						nPrescaler = 1024;
+						TCCR2B |=  (1<<CS22)|(1<<CS21)|(1<<CS20);
+						break;
+						// Prescaler = 1024
+						nPrescaler = 1024;
+						TCCR2B |=  (1<<CS22)|(1<<CS21)|(1<<CS20);
+						break;
 					case 8000000UL :
 						// Prescaler = 256
 						nPrescaler = 256;
@@ -512,7 +535,7 @@ void beepE_timerexpired() {
 		anBeepControl[i].nFreq = 1000;
 		anBeepControl[i].nAudibleCount = 16;
 		anBeepControl[i].nSilentCount = 4;
-		anBeepControl[i].idxNextBeep = kIDXNEXTBEEP_STOP;
+		anBeepControl[i].idxNextBeep = kIDXNEXTBEEP_NEXT;
 	}
 	anBeepControl[4].idxNextBeep = 0;
 	anBeepControl[4].nSilentCount = 80;
@@ -530,7 +553,7 @@ void beepF_setTimer() {
 	anBeepControl[1].nSilentCount = 0;
 	anBeepControl[1].idxNextBeep = kIDXNEXTBEEP_NEXT;
 	anBeepControl[2].nFreq = 1270;
-	anBeepControl[2].nAudibleCount = 16;
+	anBeepControl[2].nAudibleCount = 32;
 	anBeepControl[2].nSilentCount = 0;
 	anBeepControl[2].idxNextBeep = kIDXNEXTBEEP_STOP;
 	nBeepControlCount = 3;
@@ -547,7 +570,7 @@ void beepG_finishSetTimer() {
 	anBeepControl[1].nSilentCount = 0;
 	anBeepControl[1].idxNextBeep = kIDXNEXTBEEP_NEXT;
 	anBeepControl[2].nFreq = 800;
-	anBeepControl[2].nAudibleCount = 16;
+	anBeepControl[2].nAudibleCount = 32;
 	anBeepControl[2].nSilentCount = 0;
 	anBeepControl[2].idxNextBeep = kIDXNEXTBEEP_STOP;
 	nBeepControlCount = 3;
