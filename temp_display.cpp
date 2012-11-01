@@ -5,13 +5,24 @@
 		However, even if CLKPR register is set manually, serial COMMs / Bluetooth 
 		does not work correctly if SPEEDUP8X isn't set.
 		
-	Adding a crystal
-	Need to free up pins 9 and 10 for the crystal
-		* [CHECK] SR595 OE was on pin 5 (PD3). Moved to pin 13 (PD7)
-		* [CHECK] Speaker was on pin 17 (OC2A/PB3). Moved to pin 5 (OC2B/PD3)
-		* [CHECK] Encoder was on pins 9, 10, 19 (PB6. PB7, PB5). 
-		  The rotation switches are moved to pins 17 (PB3) and 15 (PB1)
-
+	Cathodes
+			SR595 pin	SR595 log	ULN in		ULN out
+			pin 7		Q7			pin 1		pin 16	- LED5&6
+			pin 6		Q6			pin 2		pin 15 	- LED1&2
+			pin 5		Q5			pin 3		pin 14 	- LED3&4
+			pin 4		Q4			pin 4		pin 13 	NC
+			pin 3		Q3			pin 5		pin 12 	- LED3
+			pin 2		Q2			pin 6		pin 11 	- LED2
+			pin 1		Q1			pin 7		pin 10 	- LED1
+			pin 15		Q0
+						pin 5 GND |	pin  9 	- VCC
+						
+			LED1&2 = SR595 Q6
+			LED3&4 = SR595 Q5
+			LED5&6 = SR595 Q7
+			7SEG1  = SR595 Q1
+			7SEG2  = SR595 Q2
+			7SEG3  = SR595 Q3
 		
 */
 
@@ -170,7 +181,8 @@ volatile	uint8_t 	nTimerMinutes;
 			uint8_t		nCountUp = 1; 
 #define COUNTDOWNTIMER_MAXMINUTES			120			
 			
-			uint16_t	nKeyPressCycleCount;			
+			uint16_t	nKeyPressCycleCount;						/* 	Counts how long a key has been pressed
+																		zero when nothing is pressed */
 			uint8_t		nIgnoreKeyRelease;			
 #define kLONGPRESS_MAX_CYCLE_COUNT	500									/* Long press 
 																		since the speed of the slow timer is independent of the CPU speed
@@ -591,6 +603,7 @@ void beepG_charge() {
 	nBeepControlCount = 6;
 	for (int i = 0; i<nBeepControlCount; i++) {
 		anBeepControl[i].nAudibleCount = DEFAULT_LENGTH;
+		anBeepControl[i].nSilentCount = DEFAULT_LENGTH/4;
 		anBeepControl[i].nSilentCount = 0;
 		anBeepControl[i].idxNextBeep = kIDXNEXTBEEP_NEXT;
 	}
@@ -598,7 +611,7 @@ void beepG_charge() {
 	anBeepControl[1].nFreq = 1068;
 	anBeepControl[2].nFreq = 1345;
 	anBeepControl[3].nFreq = 1600;
-	anBeepControl[3].nAudibleCount = DEFAULT_LENGTH*1.5;
+	anBeepControl[3].nAudibleCount = DEFAULT_LENGTH*2;
 	anBeepControl[4].nFreq = 1345;
 	anBeepControl[4].nAudibleCount = DEFAULT_LENGTH/2;
 	anBeepControl[5].nFreq = 1600;
@@ -705,7 +718,9 @@ inline void doBthUpdate() {
 	itoa(nTimerMinutes, strValue, 10);
 	fputs(strValue, stdout);
 	fputs(":", stdout);
-	itoa(nTimerSeconds % 60, strValue, 10);
+	uint8_t nSecs = nTimerSeconds % 60;
+	itoa(nSecs, strValue, 10);
+	if (nSecs<10) { fputs("0", stdout); }
 	fputs(strValue, stdout);
 	for (int i=0; i<kADC_COUNT; i++) {
 		fputs(" ADC", stdout);
@@ -977,9 +992,32 @@ int main(void) {
 		//~ }
 	}
 	
+	char strCommand[20];
+	char *ptrCmdChar = &strCommand[0];
 	while (1) {
-		doBthUpdate();
-		_delay_ms(300);		
+		if (nBthUpdateCount > KEYTIMER_MAX_BTHUPDATECOUNT) {
+			nBthUpdateCount = 0;
+			doBthUpdate();
+		}
+		if (UCSR0A & (1<<RXC0)) {
+/*			
+			loop_until_bit_is_set(UCSR0A, RXC0); // Wait until data exists. 
+			return UDR0;
+*/			
+			// Read serial character
+			*ptrCmdChar = UDR0;
+			if ( (*ptrCmdChar == '\r') || (*ptrCmdChar == '\n') ) {
+				// End of command
+				*ptrCmdChar = 0x00;
+				fputs ("You commanded ", stdout);
+				puts (strCommand);
+				ptrCmdChar = &strCommand[0];
+			} else {
+				ptrCmdChar++;
+			}
+		}
+		
+		//~ _delay_ms(300);		
 	}
 	return 0;
 }
@@ -1022,12 +1060,12 @@ ISR(TIMER0_COMPA_vect) {
 	anData[0] = aintDisplaySegments[idxDisplayValue][idxActiveCathode];
 	uint8_t nCathodeVal; 
 	switch(idxActiveCathode) {
-		case 0: 	{	(nCathodeVal) = 1<<1; break;		}
-		case 1: 	{	(nCathodeVal) = 1<<2; break;		}
-		case 2: 	{	(nCathodeVal) = 1<<3; break;		}
-		case 3: 	{	(nCathodeVal) = 1<<6; break;		}
-		case 4: 	{	(nCathodeVal) = 1<<5; break;		}
-		case 5: 	{	(nCathodeVal) = 1<<7; break;		}
+		case 0: 	{	(nCathodeVal) = 1<<1; break;		}		// 7SEG 0
+		case 1: 	{	(nCathodeVal) = 1<<2; break;		}		// 7SEG 1
+		case 2: 	{	(nCathodeVal) = 1<<3; break;		}		// 7SEG 2
+		case 3: 	{	(nCathodeVal) = 1<<6; break;		}		// INDIC1&2
+		case 4: 	{	(nCathodeVal) = 1<<5; break;		}		// INDIC3&4
+		case 5: 	{	(nCathodeVal) = 1<<7; break;		}		// INDIC5&6
 		default:	{	(nCathodeVal) = 0;					}
 	}
 	// anData[0] is the cathodes
@@ -1233,10 +1271,12 @@ ISR(TIMER1_COMPA_vect) {
 	if (nRegime==kREGIME_DISPLAYVALUES) {
 		// Do display updating
 		if (nStopValueCycling == 0) {
-			if (++nValueCycleCount >= KEYTIMER_MAX_VALUECYCLE) {
-				nValueCycleCount = 0;
-				if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
-					idxDisplayValue = 0;
+			if (nKeyPressCycleCount==0) { // Do not cycle while something is pressed
+				if (++nValueCycleCount >= KEYTIMER_MAX_VALUECYCLE) {
+					nValueCycleCount = 0;
+					if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
+						idxDisplayValue = 0;
+					}
 				}
 			}
 		}
@@ -1300,6 +1340,9 @@ ISR(TIMER1_COMPA_vect) {
 	if (nTimebase % 2) {
 		beepProcessing();
 	}
+	
+	// Update Bluetooth timing
+	nBthUpdateCount++;
 }
 
 
