@@ -283,7 +283,7 @@ uint16_t tempFromADC(uint16_t intADCValue) {
 
 #define SPKOUT_OC2A	1
 #define SPKOUT_OC2B	2
-#define SPEAKER_OUT_PIN SPKOUT_OC2B
+#define SPEAKER_OUT_PIN SPKOUT_OC2A
 
 #if SPEAKER_OUT_PIN == 0
 #error Programming error in speaker settings
@@ -337,7 +337,8 @@ volatile		uint8_t 	nBeginBeep;
 inline void beepTurnOff() {
 	kSPEAKER_DDR &= ~(1<<kSPEAKER_PIN);			/* turn off the OC PIN */
 	kSPEAKER_PORT |= 1<<kSPEAKER_PIN;			/* set this pin high */
-	TCCR2A &= ~((1<<COM2A1) | (1<<COM2A0));		/* Normal operation: OC pin disconnected */
+	TCCR2A &= ~((1<<COM2A1)|(1<<COM2A0));		/* Normal operation: OC pins disconnected */
+	//~ TCCR2A &= ~((1<<COM2A1)|(1<<COM2A0)|(1<<COM2B1)|(1<<COM2B0));		/* Normal operation: OC pins disconnected */
 	TCCR2B = 0; 								// Timer stopped
 }	
 
@@ -397,6 +398,8 @@ void beepProcessing() {
 			
 			if (idxBeepControl < nBeepControlCount) {
 				nBeepAudible = 1;
+				kSPEAKER_DDR |= 1<<kSPEAKER_PIN;			/* Connect the OC PIN */
+				TIMSK2 = 0;							// No interrupts
 				TCNT2  = 0;            				// 	Initial counter value
 				/* CTC mode, toggle the output pin */
 				TCCR2A = 0
@@ -444,8 +447,6 @@ void beepProcessing() {
 				}
 				// Calculate the TOP
 				kSPEAKER_OCR2 = F_CPU / nPrescaler / anBeepControl[idxBeepControl].nFreq;
-				// Connect the OC pin
-				kSPEAKER_DDR |= 1<<kSPEAKER_PIN;			/* Connect the OC PIN */
 			} else {
 				// Done beeping
 				idxBeepControl = kBEEPCONTROL_NOBEEP;
@@ -519,6 +520,40 @@ void beepE_timerexpired() {
 	anBeepControl[4].idxNextBeep = 0;
 	anBeepControl[4].nSilentCount = 80;
 	nBeepControlCount = 5;
+	nBeginBeep = 1;
+}
+
+void beepF_setTimer() {
+	anBeepControl[0].nFreq = 800;
+	anBeepControl[0].nAudibleCount = 16;
+	anBeepControl[0].nSilentCount = 0;
+	anBeepControl[0].idxNextBeep = kIDXNEXTBEEP_NEXT;
+	anBeepControl[1].nFreq = 951;
+	anBeepControl[1].nAudibleCount = 16;
+	anBeepControl[1].nSilentCount = 0;
+	anBeepControl[1].idxNextBeep = kIDXNEXTBEEP_NEXT;
+	anBeepControl[2].nFreq = 1270;
+	anBeepControl[2].nAudibleCount = 16;
+	anBeepControl[2].nSilentCount = 0;
+	anBeepControl[2].idxNextBeep = kIDXNEXTBEEP_NEXT;
+	nBeepControlCount = 3;
+	nBeginBeep = 1;
+}
+
+void beepG_finishSetTimer() {
+	anBeepControl[0].nFreq = 1270;
+	anBeepControl[0].nAudibleCount = 16;
+	anBeepControl[0].nSilentCount = 0;
+	anBeepControl[0].idxNextBeep = kIDXNEXTBEEP_NEXT;
+	anBeepControl[1].nFreq = 951;
+	anBeepControl[1].nAudibleCount = 16;
+	anBeepControl[1].nSilentCount = 0;
+	anBeepControl[1].idxNextBeep = kIDXNEXTBEEP_NEXT;
+	anBeepControl[2].nFreq = 800;
+	anBeepControl[2].nAudibleCount = 16;
+	anBeepControl[2].nSilentCount = 0;
+	anBeepControl[2].idxNextBeep = kIDXNEXTBEEP_NEXT;
+	nBeepControlCount = 3;
 	nBeginBeep = 1;
 }
 
@@ -970,14 +1005,14 @@ ISR(TIMER1_COMPA_vect) {
 				switch (nRegime) {
 				case kREGIME_DISPLAYVALUES:
 					nRegime = kREGIME_SETTIMER;				// Change the regime
-					beepC_lowlong();						// Audio indicator
+					beepF_setTimer();						// Audio indicator
 					setDisplayValue(kIDXDISPVALUE_SETTING, 0);	// Initialize the value
 					idxDisplayValue = kIDXDISPVALUE_SETTING;		// Make the leds display this value
 					setIndicator(kIDXDISPVALUE_SETTING, kIDXDISPVALUE_TIMER, 0, 0, 1);	// Turn on blue led
 					break;
 				case kREGIME_SETTIMER:
 					nRegime = kREGIME_DISPLAYVALUES;		// Change the regime
-					beepD_higshort();						// Audio indicator
+					beepG_finishSetTimer();					// Audio indicator
 				}
 			}
 			nKeyPressCycleCount = 0;
@@ -1129,7 +1164,7 @@ ISR(TIMER1_COMPA_vect) {
 							nTimingCount = 0;
 						}
 						nRegime = kREGIME_DISPLAYVALUES;		// Change the regime
-						beepD_higshort();						// Audio indicator
+						beepG_finishSetTimer();						// Audio indicator
 					} else {
 						// Kill sounds()
 						beepStop();
