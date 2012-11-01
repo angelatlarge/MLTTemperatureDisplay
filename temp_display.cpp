@@ -240,7 +240,7 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 //////////////////////////////////////////////
 // ADC stuff
 
-#define ADC_VBITS	15
+#define ADC_VBITS	16
 
 #if ADC_VBITS==13
 // Virtual 13-bit ADC settings
@@ -586,6 +586,26 @@ void beepH_440forever() {
 	nBeginBeep = 1;
 }
 
+void beepG_charge() {
+#define	DEFAULT_LENGTH 32
+	nBeepControlCount = 6;
+	for (int i = 0; i<nBeepControlCount; i++) {
+		anBeepControl[i].nAudibleCount = DEFAULT_LENGTH;
+		anBeepControl[i].nSilentCount = 0;
+		anBeepControl[i].idxNextBeep = kIDXNEXTBEEP_NEXT;
+	}
+	anBeepControl[0].nFreq = 800;
+	anBeepControl[1].nFreq = 1068;
+	anBeepControl[2].nFreq = 1345;
+	anBeepControl[3].nFreq = 1600;
+	anBeepControl[3].nAudibleCount = DEFAULT_LENGTH*1.5;
+	anBeepControl[4].nFreq = 1345;
+	anBeepControl[4].nAudibleCount = DEFAULT_LENGTH/2;
+	anBeepControl[5].nFreq = 1600;
+	anBeepControl[5].nAudibleCount = DEFAULT_LENGTH*2;
+	nBeginBeep = 1;
+}
+
 //~ #include "uart.h"
 //////////////////////////////////////////////
 // Serial 
@@ -912,6 +932,8 @@ int main(void) {
 	
 	// Turn off the speaker
 	beepTurnOff();
+	
+	beepG_charge();
 	
 	//~ _delay_ms(1000);
 	//~ uint8_t anData[2];
