@@ -79,7 +79,7 @@ MCU=atmega328
 # for ATmega8s, avr-gcc expects 'atmega8' and 
 # avrdude requires 'm8')
 #~ PROGRAMMER_MCU=m16
-PROGRAMMER_MCU=m328p
+PROGRAMMER_MCU=m328pu
 
 # Name of our project
 # (use a single word, e.g. 'myproject')

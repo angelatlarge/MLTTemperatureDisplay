@@ -60,7 +60,7 @@
 #define LEDSEG_F	(1<<6)	
 #define LEDSEG_G	(1<<7)	
 
-#define kINDICATOR_COUNT 	7
+#define kINDICATOR_COUNT 	6
 #define IND0_R		LEDSEG_D	
 #define IND0_G		LEDSEG_E	
 #define IND0_B		LEDSEG_F	
@@ -71,7 +71,8 @@ uint8_t	aintIndicatorSegmentR[2] = {IND0_R, IND1_R};
 uint8_t	aintIndicatorSegmentG[2] = {IND0_G, IND1_G};
 uint8_t	aintIndicatorSegmentB[2] = {IND0_B, IND1_B};
 
-uint8_t aintIndicatorCathode[kINDICATOR_COUNT] = {6, 6, 5, 5, 7, 7, 1};
+//~ uint8_t aintIndicatorCathode[kINDICATOR_COUNT] = {6, 6, 5, 5, 7, 7, 1};
+uint8_t aintIndicatorCathode[kINDICATOR_COUNT] = {6, 6, 5, 5, 7, 7};
 // Font and digits for 7segment
 // ... digits
 #define LED7OUT_0		LEDSEG_A | LEDSEG_B | LEDSEG_C | LEDSEG_D | LEDSEG_E | LEDSEG_F
@@ -147,6 +148,7 @@ sr595 sr(
 // Regimes
 #define kREGIME_DISPLAYVALUES	0
 #define kREGIME_SETTIMER		1
+#define kREGIME_TESTLEDS		2
 			uint8_t		nRegime = 0;
 
 /////////////////////////////////////////////////////////////////////
@@ -313,7 +315,7 @@ uint16_t tempFromADC(uint16_t intADCValue) {
 
 //////////////////////////////////////////////
 // Beeps
-#define kBEEP_CONTROL_MAXENTRIES	6
+#define kBEEP_CONTROL_MAXENTRIES	9
 
 #define SPKOUT_OC2A	1
 #define SPKOUT_OC2B	2
@@ -627,6 +629,47 @@ void beepG_charge() {
 	nBeginBeep = 1;
 }
 
+
+void beepH_vlesurodilas() {
+#define	DEFAULT_LENGTH 32
+	nBeepControlCount = 8;
+	for (int i = 0; i<nBeepControlCount; i++) {
+		anBeepControl[i].nAudibleCount = DEFAULT_LENGTH;
+		anBeepControl[i].nSilentCount = DEFAULT_LENGTH/4;
+		anBeepControl[i].nSilentCount = 0;
+		anBeepControl[i].idxNextBeep = kIDXNEXTBEEP_NEXT;
+	}
+	anBeepControl[0].nFreq = 440;
+	anBeepControl[1].nFreq = 784;
+	anBeepControl[2].nFreq = 784;
+	anBeepControl[3].nFreq = 698;
+	anBeepControl[4].nFreq = 784;
+	anBeepControl[5].nFreq = 622;
+	anBeepControl[6].nFreq = 440;
+	anBeepControl[7].nFreq = 440;
+	nBeginBeep = 1;
+}
+
+void beepI_vlesuonarosla() {
+#define	DEFAULT_LENGTH 32
+	nBeepControlCount = 6;
+	for (int i = 0; i<nBeepControlCount; i++) {
+		anBeepControl[i].nAudibleCount = DEFAULT_LENGTH;
+		anBeepControl[i].nSilentCount = DEFAULT_LENGTH/4;
+		anBeepControl[i].nSilentCount = 0;
+		anBeepControl[i].idxNextBeep = kIDXNEXTBEEP_NEXT;
+	}
+	anBeepControl[0].nFreq = 440;
+	anBeepControl[1].nFreq = 784;
+	anBeepControl[2].nFreq = 784;
+	anBeepControl[3].nFreq = 698;
+	anBeepControl[4].nFreq = 932;
+	anBeepControl[5].nFreq = 784;
+	anBeepControl[5].nAudibleCount = DEFAULT_LENGTH*2;
+	nBeginBeep = 1;
+}
+
+
 //~ #include "uart.h"
 //////////////////////////////////////////////
 // Serial 
@@ -717,8 +760,9 @@ inline void setIndicator(uint8_t idxDisplayValue, uint8_t idxIndicatorLed, uint8
 }
 
 
+
 //////////////////////////////////////////////
-// Main
+// Bluetooth update
 inline void doBthUpdate() {
 	static char strValue[10];
 	fputs("@", stdout);
@@ -1112,7 +1156,21 @@ ISR(TIMER1_COMPA_vect) {
 					setIndicator(kIDXDISPVALUE_SETTING, kIDXDISPVALUE_TIMER, 0, 0, 1);	// Turn on blue led
 					break;
 				case kREGIME_SETTIMER:
-					beepH_440forever();					// Audio indicator
+					beepH_vlesurodilas();
+					nRegime = kREGIME_TESTLEDS;
+					idxDisplayValue = kIDXDISPVALUE_SETTING;		// Make the leds display this value
+					for (int i=0; i<kINDICATOR_COUNT; i++) {
+						setIndicator(kIDXDISPVALUE_SETTING, i, 1, 1, 1);	// Turn on all leds
+					}
+					for (int idxDigit=0; idxDigit<kDISPVALUE_DIGITCOUNT; idxDigit++) {
+						ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+							aintDisplaySegments[kIDXDISPVALUE_SETTING][idxDigit] = 0xFF;
+						}
+					}
+					break;
+				case kREGIME_TESTLEDS:
+					// ????
+					break;
 				}
 			}
 			nKeyPressCycleCount = 0;
@@ -1272,6 +1330,23 @@ ISR(TIMER1_COMPA_vect) {
 				}
 			}
 			break;		
+		case kREGIME_TESTLEDS:
+			if ((nChangedBits & intNewKeyState) == 0) {
+				// This is a press event
+			} else {
+				// This is a release event
+				if (nIgnoreKeyRelease) {
+					nIgnoreKeyRelease = 0;
+				} else {
+					if (nChangedBits & INPUT_ENCODERBTN) {
+						// Short encoder button press
+						// Exit test mode
+						nRegime = kREGIME_DISPLAYVALUES;		// Change the regime
+						beepI_vlesuonarosla();						// Audio indicator
+					}
+				}
+			}
+			break;
 		}
 	}
 	
