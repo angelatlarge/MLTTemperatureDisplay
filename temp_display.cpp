@@ -149,7 +149,7 @@ sr595 sr(
 #define kREGIME_DISPLAYVALUES	0
 #define kREGIME_SETTIMER		1
 #define kREGIME_TESTLEDS		2
-			uint8_t		nRegime = 0;
+volatile		uint8_t		nRegime = 0;
 
 /////////////////////////////////////////////////////////////////////
 // Keys control
@@ -1011,14 +1011,14 @@ int main(void) {
 	
 	//~ while(1) {
 	//~ }
-	while (0) {
-		char strNumber[10];
-		puts("AT+NAMEtempar");
-		fputs ("AT+NAMEtempar", stdout)	;
-		puts ("Hello, world");
-		_delay_ms(3000);
-		nDisplayValue++;
-	}
+	//~ while (0) {
+		//~ char strNumber[10];
+		//~ puts("AT+NAMEtempar");
+		//~ fputs ("AT+NAMEtempar", stdout)	;
+		//~ puts ("Hello, world");
+		//~ _delay_ms(3000);
+		//~ nDisplayValue++;
+	//~ }
 	
 	while (0) {
 		// Just count up
@@ -1082,6 +1082,7 @@ int main(void) {
 
 //////////////////////////////////////////////
 // Interrupt routine for servicing ADC
+
 ISR(ADC_vect)
 {
 	uint8_t intADCLo = ADCL;
@@ -1104,7 +1105,9 @@ ISR(ADC_vect)
 	ADCSRA |= (1<<ADSC);	//Start converting
 } 
 
+//////////////////////////////////////////////
 // Interrupt routine for servicing LED refreshment
+
 ISR(TIMER0_COMPA_vect) {
 	static uint8_t idxActiveCathode = 0;
 	
@@ -1119,9 +1122,9 @@ ISR(TIMER0_COMPA_vect) {
 		case 0: 	{	(nCathodeVal) = 1<<1; break;		}		// 7SEG 0
 		case 1: 	{	(nCathodeVal) = 1<<2; break;		}		// 7SEG 1
 		case 2: 	{	(nCathodeVal) = 1<<3; break;		}		// 7SEG 2
-		case 3: 	{	(nCathodeVal) = 1<<6; break;		}		// INDIC1&2
-		case 4: 	{	(nCathodeVal) = 1<<5; break;		}		// INDIC3&4
-		case 5: 	{	(nCathodeVal) = 1<<7; break;		}		// INDIC5&6
+		case 3: 	{	(nCathodeVal) = 1<<5; break;		}		// INDIC1&2
+		case 4: 	{	(nCathodeVal) = 1<<4; break;		}		// INDIC3&4
+		case 5: 	{	(nCathodeVal) = 1<<6; break;		}		// INDIC5&6
 		default:	{	(nCathodeVal) = 0;					}
 	}
 	// anData[0] is the cathodes
@@ -1136,6 +1139,237 @@ ISR(TIMER0_COMPA_vect) {
 	return;
 }
 
+//////////////////////////////////////////////
+// Regimes
+
+
+class CRegime {
+	public:
+		virtual void encoderLeft() 		{ return;}
+		virtual void encoderRight() 	{ return; }
+		virtual void encoderPress() 	{ return; }
+		virtual void encoderLongPress() { return; }
+		virtual void start();
+};
+
+class CDisplayValuesRegime: public CRegime {
+	public:
+		virtual void encoderLeft();
+		virtual void encoderRight();
+		virtual void encoderPress();
+		virtual void encoderLongPress();
+} regimeDisplayValues;
+
+class CSetTimerRegime: public CRegime {
+	public:
+		virtual void encoderLeft();
+		virtual void encoderRight();
+		virtual void encoderPress();
+		virtual void encoderLongPress();
+} regimeSetTimer;
+
+class CTestRegime : public CRegime {
+	public:
+		virtual void encoderLeft();
+		virtual void encoderRight();
+		virtual void encoderPress();
+		virtual void start();
+		//~ virtual void encoderLongPress();
+	protected:
+		void updateDisplay();
+		uint8_t m_nCathode;
+		uint8_t m_nAnode;
+} regimeTest;
+
+CRegime * volatile ptrCurrentRegime = &regimeDisplayValues;
+
+//////////////////////////////////////////////
+
+void CRegime::start() {
+	ptrCurrentRegime = this;
+};
+
+//////////////////////////////////////////////
+
+void CDisplayValuesRegime::encoderLeft() {
+	// Go to the previous value
+	if (idxDisplayValue==0) {
+		idxDisplayValue = kDISPVALUE_COUNT - 1; 
+	} else {
+		--idxDisplayValue;
+	}
+	// 2. reset the value display timer
+	nValueCycleCount = 0;
+	
+}
+void CDisplayValuesRegime::encoderRight() {
+	// Next value
+	if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
+		idxDisplayValue = 0;
+	}
+	// 2. reset the value display timer
+	nValueCycleCount = 0;
+}
+
+void CDisplayValuesRegime::encoderPress() {
+	nStopValueCycling = nStopValueCycling ^ 0x01;
+	if (nStopValueCycling) {
+		// Set all indicators to red
+		for (int idxVal = 0; idxVal<kDISPVALUE_COUNT; idxVal++) {
+			setIndicator(idxVal, idxVal, 1, 0, 0);
+		}
+	} else {
+		// Set all indicators to green
+		for (int idxVal = 0; idxVal<kDISPVALUE_COUNT; idxVal++) {
+			setIndicator(idxVal, idxVal, 0, 1, 0);
+		}
+		
+		// Go to the next value
+		nValueCycleCount = 0;
+		if ( (++idxDisplayValue) >= (kDISPVALUE_COUNT) ) {
+			idxDisplayValue = 0;
+		}
+	}
+}
+
+void CDisplayValuesRegime::encoderLongPress() {
+	regimeSetTimer.start();
+	nRegime = kREGIME_SETTIMER;				// Change the regime
+	beepF_setTimer();						// Audio indicator
+	setDisplayValue(kIDXDISPVALUE_SETTING, 0);	// Initialize the value
+	idxDisplayValue = kIDXDISPVALUE_SETTING;		// Make the leds display this value
+	setIndicator(kIDXDISPVALUE_SETTING, kIDXDISPVALUE_TIMER, 0, 0, 1);	// Turn on blue led
+}
+
+//////////////////////////////////////////////
+
+void CSetTimerRegime::encoderLeft() {
+	// Go to the previous value
+	if (getDisplayValue(kIDXDISPVALUE_SETTING) > 0) {
+		setDisplayValue(kIDXDISPVALUE_SETTING, getDisplayValue(kIDXDISPVALUE_SETTING) - 1);
+	} else {
+		setDisplayValue(kIDXDISPVALUE_SETTING, COUNTDOWNTIMER_MAXMINUTES);
+	}	
+}
+
+void CSetTimerRegime::encoderRight() {
+	if (getDisplayValue(kIDXDISPVALUE_SETTING) < COUNTDOWNTIMER_MAXMINUTES) {
+		setDisplayValue(kIDXDISPVALUE_SETTING, getDisplayValue(kIDXDISPVALUE_SETTING) + 1);
+	} else {
+		setDisplayValue(kIDXDISPVALUE_SETTING, 0);
+	}
+}
+
+void CSetTimerRegime::encoderLongPress() {
+	beepH_vlesurodilas();
+	regimeTest.start();
+	nRegime = kREGIME_TESTLEDS;
+}
+
+void CSetTimerRegime::encoderPress() {
+	if (getDisplayValue(kIDXDISPVALUE_SETTING) > 0) {
+		// Set up the countdown timer
+		nCountUp = 0;
+		nTimingCount  = 
+				getDisplayValue(kIDXDISPVALUE_SETTING)			// Minutes
+			*	60												// Seconds
+			*	TIMER1_OCR1A_FPU_DIV							// Cycle requency
+			/	1024											// Prescaler
+			;
+	} else {
+		// Nothing to do
+		nCountUp = 1;
+		nTimingCount = 0;
+	}
+	regimeTest.start();
+	nRegime = kREGIME_DISPLAYVALUES;		// Change the regime
+	beepG_finishSetTimer();						// Audio indicator
+}
+
+
+//////////////////////////////////////////////
+
+void CTestRegime::encoderPress() {
+	// Short encoder button press
+	// Exit test mode
+	regimeDisplayValues.start();
+	nRegime = kREGIME_DISPLAYVALUES;		// Change the regime
+	beepI_vlesuonarosla();						// Audio indicator
+}
+
+void CTestRegime::updateDisplay() {
+	// Zero out everything
+	for (int i=0; i<kINDICATOR_COUNT; i++) {
+		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+			setIndicator(kIDXDISPVALUE_SETTING, i, 0, 0, 0);	// Turn on all leds
+		}
+	}
+	for (int idxDigit=0; idxDigit<kDISPVALUE_DIGITCOUNT; idxDigit++) {
+		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+			aintDisplaySegments[kIDXDISPVALUE_SETTING][idxDigit] = 0x00;
+		}
+	}
+	if (m_nCathode==0) {
+		// Turn everything on
+		for (int i=0; i<kINDICATOR_COUNT; i++) {
+			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+				setIndicator(kIDXDISPVALUE_SETTING, i, 1, 1, 1);	// Turn on all leds
+			}
+		}
+		for (int idxDigit=0; idxDigit<kDISPVALUE_DIGITCOUNT; idxDigit++) {
+			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+				aintDisplaySegments[kIDXDISPVALUE_SETTING][idxDigit] = 0xFF;
+			}
+		}
+	} else {
+		aintDisplaySegments[kIDXDISPVALUE_SETTING][m_nCathode-1] = 1<<m_nAnode;
+	}	
+}
+
+void CTestRegime::start() {
+	CRegime::start();
+	
+	m_nCathode = 0;
+	m_nAnode = 0;
+	idxDisplayValue = kIDXDISPVALUE_SETTING;		// Make the leds display this value
+	
+	updateDisplay();
+	
+}
+
+void CTestRegime::encoderRight() {
+	if (m_nCathode == 0) {
+		m_nCathode++;
+	} else {
+		if (m_nAnode<0x7) {
+			m_nAnode++;
+		} else {
+			m_nAnode = 0;
+			if (++m_nCathode > kDISPVALUE_CATHODECOUNT) {
+				m_nCathode = 0;
+			}
+		}
+	}
+	updateDisplay();
+}
+
+void CTestRegime::encoderLeft() {
+	if (m_nCathode == 0) {
+		m_nCathode = kDISPVALUE_CATHODECOUNT;
+		m_nAnode = 7;
+	} else {
+		if (m_nAnode>0) {
+			m_nAnode--;
+		} else {
+			m_nAnode = 7;
+			m_nCathode--;
+		}
+	}
+	updateDisplay();	
+}
+
+
+//////////////////////////////////////////////
 
 ISR(TIMER1_COMPA_vect) {
 /*
@@ -1145,33 +1379,8 @@ ISR(TIMER1_COMPA_vect) {
 	if (nKeyPressCycleCount) {
 		if (++nKeyPressCycleCount > kLONGPRESS_MAX_CYCLE_COUNT) {
 			if ((intKeyState & INPUT_ENCODERBTN) == 0) {
-				// The encoder button has been longpressed
 				nIgnoreKeyRelease = 1;
-				switch (nRegime) {
-				case kREGIME_DISPLAYVALUES:
-					nRegime = kREGIME_SETTIMER;				// Change the regime
-					beepF_setTimer();						// Audio indicator
-					setDisplayValue(kIDXDISPVALUE_SETTING, 0);	// Initialize the value
-					idxDisplayValue = kIDXDISPVALUE_SETTING;		// Make the leds display this value
-					setIndicator(kIDXDISPVALUE_SETTING, kIDXDISPVALUE_TIMER, 0, 0, 1);	// Turn on blue led
-					break;
-				case kREGIME_SETTIMER:
-					beepH_vlesurodilas();
-					nRegime = kREGIME_TESTLEDS;
-					idxDisplayValue = kIDXDISPVALUE_SETTING;		// Make the leds display this value
-					for (int i=0; i<kINDICATOR_COUNT; i++) {
-						setIndicator(kIDXDISPVALUE_SETTING, i, 1, 1, 1);	// Turn on all leds
-					}
-					for (int idxDigit=0; idxDigit<kDISPVALUE_DIGITCOUNT; idxDigit++) {
-						ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-							aintDisplaySegments[kIDXDISPVALUE_SETTING][idxDigit] = 0xFF;
-						}
-					}
-					break;
-				case kREGIME_TESTLEDS:
-					// ????
-					break;
-				}
+				ptrCurrentRegime->encoderLongPress();
 			}
 			nKeyPressCycleCount = 0;
 		}
@@ -1216,137 +1425,28 @@ ISR(TIMER1_COMPA_vect) {
 	
 	// Process keys by regime
 	if (nChangedBits) {
-		switch (nRegime) {
-		case kREGIME_DISPLAYVALUES:
-			if ((nChangedBits & intNewKeyState) == 0) {
-				// This is a press event
-				if ((nChangedBits & INPUT_ENCODERLEFT) && !nEncoderRotationIgnoreTickCount) {
-					// Encoder left
-					// 1. go to previous value 
-					if (idxDisplayValue==0) {
-						idxDisplayValue = kDISPVALUE_COUNT - 1; 
-					} else {
-						--idxDisplayValue;
-					}
-					// 2. reset the value display timer
-					nValueCycleCount = 0;
-					// 3. Ignoring encoder in the opposite direction
-					nEncoderRotationIgnoreTickCount = INPUT_IGNORE_ENCODER_OPPDIR_TICK_COUNT;
-				} else if ((nChangedBits & INPUT_ENCODERRIGHT) && !nEncoderRotationIgnoreTickCount) {
-					// Encoder right
-					// 1. go to next value 
-					if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
-						idxDisplayValue = 0;
-					}
-					// 2. reset the value display timer
-					nValueCycleCount = 0;
-					// 3. Ignoring encoder in the opposite direction
-					nEncoderRotationIgnoreTickCount = INPUT_IGNORE_ENCODER_OPPDIR_TICK_COUNT;
-				}
-				// Kill sounds()
-				beepStop();
-			} else {
-				// This is a release event
-				if (nIgnoreKeyRelease) {
-					nIgnoreKeyRelease = 0;
-				} else {
-					if (nChangedBits & INPUT_ENCODERBTN) {
-						// Short encoder button: pause/restart cycling
-						nStopValueCycling = nStopValueCycling ^ 0x01;
-						if (nStopValueCycling) {
-							// Set all indicators to red
-							for (int idxVal = 0; idxVal<kDISPVALUE_COUNT; idxVal++) {
-								setIndicator(idxVal, idxVal, 1, 0, 0);
-							}
-						} else {
-							// Set all indicators to green
-							for (int idxVal = 0; idxVal<kDISPVALUE_COUNT; idxVal++) {
-								setIndicator(idxVal, idxVal, 0, 1, 0);
-							}
-							
-							// Go to the next value
-							nValueCycleCount = 0;
-							if ( (++idxDisplayValue) >= (kDISPVALUE_COUNT) ) {
-								idxDisplayValue = 0;
-							}
-						}
-					}
-					// Kill sounds()
-					beepStop();
-				}
-					
+		if ((nChangedBits & intNewKeyState) == 0) {
+			// This is a press event
+			if ((nChangedBits & INPUT_ENCODERLEFT) && !nEncoderRotationIgnoreTickCount) {
+				ptrCurrentRegime->encoderLeft();
+				nEncoderRotationIgnoreTickCount = INPUT_IGNORE_ENCODER_OPPDIR_TICK_COUNT;
+			} else if ((nChangedBits & INPUT_ENCODERRIGHT) && !nEncoderRotationIgnoreTickCount) {
+				ptrCurrentRegime->encoderRight();
+				nEncoderRotationIgnoreTickCount = INPUT_IGNORE_ENCODER_OPPDIR_TICK_COUNT;
 			}
-		break;
-		case kREGIME_SETTIMER:
-			// Code for the set timer regime
-			if ((nChangedBits & intNewKeyState) == 0) {
-				// This is a press event
-				if ((nChangedBits & INPUT_ENCODERLEFT) && !nEncoderRotationIgnoreTickCount) {
-					// Encoder left
-					if (getDisplayValue(kIDXDISPVALUE_SETTING) > 0) {
-						setDisplayValue(kIDXDISPVALUE_SETTING, getDisplayValue(kIDXDISPVALUE_SETTING) - 1);
-					} else {
-						setDisplayValue(kIDXDISPVALUE_SETTING, COUNTDOWNTIMER_MAXMINUTES);
-					}
-					nEncoderRotationIgnoreTickCount = INPUT_IGNORE_ENCODER_OPPDIR_TICK_COUNT;
-				} else if ((nChangedBits & INPUT_ENCODERRIGHT) && !nEncoderRotationIgnoreTickCount) {
-					// Encoder right
-					if (getDisplayValue(kIDXDISPVALUE_SETTING) < COUNTDOWNTIMER_MAXMINUTES) {
-						setDisplayValue(kIDXDISPVALUE_SETTING, getDisplayValue(kIDXDISPVALUE_SETTING) + 1);
-					} else {
-						setDisplayValue(kIDXDISPVALUE_SETTING, 0);
-					}
-					nEncoderRotationIgnoreTickCount = INPUT_IGNORE_ENCODER_OPPDIR_TICK_COUNT;
-				}
-				// Kill sounds()
-				beepStop();
+			// Kill sounds()
+			beepStop();
+		} else {
+			// This is a release event
+			if (nIgnoreKeyRelease) {
+				// Ignoring release event
+				nIgnoreKeyRelease = 0;
 			} else {
-				// This is a release event
-				if (nIgnoreKeyRelease) {
-					nIgnoreKeyRelease = 0;
-				} else {
-					if (nChangedBits & INPUT_ENCODERBTN) {
-						// Short press: save setting
-						if (getDisplayValue(kIDXDISPVALUE_SETTING) > 0) {
-							// Set up the countdown timer
-							nCountUp = 0;
-							nTimingCount  = 
-									getDisplayValue(kIDXDISPVALUE_SETTING)			// Minutes
-								*	60												// Seconds
-								*	TIMER1_OCR1A_FPU_DIV							// Cycle requency
-								/	1024											// Prescaler
-								;
-						} else {
-							// Nothing to do
-							nCountUp = 1;
-							nTimingCount = 0;
-						}
-						nRegime = kREGIME_DISPLAYVALUES;		// Change the regime
-						beepG_finishSetTimer();						// Audio indicator
-					} else {
-						// Kill sounds()
-						beepStop();
-					}
-				}
+				// Unignored release event
+				if (nChangedBits & INPUT_ENCODERBTN) {
+					ptrCurrentRegime->encoderPress();
+				} // else encoder roation release does not matter
 			}
-			break;		
-		case kREGIME_TESTLEDS:
-			if ((nChangedBits & intNewKeyState) == 0) {
-				// This is a press event
-			} else {
-				// This is a release event
-				if (nIgnoreKeyRelease) {
-					nIgnoreKeyRelease = 0;
-				} else {
-					if (nChangedBits & INPUT_ENCODERBTN) {
-						// Short encoder button press
-						// Exit test mode
-						nRegime = kREGIME_DISPLAYVALUES;		// Change the regime
-						beepI_vlesuonarosla();						// Audio indicator
-					}
-				}
-			}
-			break;
 		}
 	}
 	
