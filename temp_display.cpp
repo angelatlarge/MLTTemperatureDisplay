@@ -1281,7 +1281,7 @@ void CSetTimerRegime::encoderPress() {
 		nCountUp = 1;
 		nTimingCount = 0;
 	}
-	regimeTest.start();
+	regimeDisplayValues.start();
 	nRegime = kREGIME_DISPLAYVALUES;		// Change the regime
 	beepG_finishSetTimer();						// Audio indicator
 }
