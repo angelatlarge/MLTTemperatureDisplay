@@ -1,0 +1,101 @@
+Cmp-Mod V01 Created by CvPcb (2012-01-19 BZR 3256)-stable date = 11/17/2012 11:31:35 AM
+
+BeginCmp
+TimeStamp = /50A69BA7;
+Reference = C1;
+ValeurCmp = CP;
+IdModule  = C1;
+EndCmp
+
+BeginCmp
+TimeStamp = /50A69E7B;
+Reference = C2;
+ValeurCmp = CP;
+IdModule  = C1;
+EndCmp
+
+BeginCmp
+TimeStamp = /50A6A481;
+Reference = K1;
+ValeurCmp = CONN_3;
+IdModule  = SCREWTERM-3;
+EndCmp
+
+BeginCmp
+TimeStamp = /50A5746E;
+Reference = R1;
+ValeurCmp = 100K;
+IdModule  = R4;
+EndCmp
+
+BeginCmp
+TimeStamp = /50A5BBE9;
+Reference = R2;
+ValeurCmp = 47K;
+IdModule  = R3-LARGE_PADS;
+EndCmp
+
+BeginCmp
+TimeStamp = /50A54697;
+Reference = R3;
+ValeurCmp = 100K;
+IdModule  = R3-LARGE_PADS;
+EndCmp
+
+BeginCmp
+TimeStamp = /50A54751;
+Reference = R4;
+ValeurCmp = 1K;
+IdModule  = R3-LARGE_PADS;
+EndCmp
+
+BeginCmp
+TimeStamp = /50A54809;
+Reference = R5;
+ValeurCmp = 1K;
+IdModule  = R3-LARGE_PADS;
+EndCmp
+
+BeginCmp
+TimeStamp = /50A54811;
+Reference = R6;
+ValeurCmp = 100K;
+IdModule  = R3-LARGE_PADS;
+EndCmp
+
+BeginCmp
+TimeStamp = /50A5BBDC;
+Reference = R7;
+ValeurCmp = 100K;
+IdModule  = R3-LARGE_PADS;
+EndCmp
+
+BeginCmp
+TimeStamp = /50A7B042;
+Reference = R8;
+ValeurCmp = 100K;
+IdModule  = R3-LARGE_PADS;
+EndCmp
+
+BeginCmp
+TimeStamp = /50A7B03C;
+Reference = R9;
+ValeurCmp = 100K;
+IdModule  = R3-LARGE_PADS;
+EndCmp
+
+BeginCmp
+TimeStamp = /50A7AFB4;
+Reference = U1;
+ValeurCmp = LM324;
+IdModule  = DIP-14__300_ELL;
+EndCmp
+
+BeginCmp
+TimeStamp = /50A5BDED;
+Reference = U2;
+ValeurCmp = MPX2010;
+IdModule  = MPX2010;
+EndCmp
+
+EndListe
