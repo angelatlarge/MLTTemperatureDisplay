@@ -1,4 +1,4 @@
-# EESchema Netlist Version 1.1 created  11/17/2012 12:58:23 PM
+# EESchema Netlist Version 1.1 created  11/17/2012 8:14:52 PM
 (
  ( /50A7CF36 C1 C1 C-US-POL
   ( 1 +5V )
@@ -13,7 +13,7 @@
   ( 2 N-000013 )
   ( 3 GND )
  )
- ( /50A5746E R3-LARGE_PADS R1 100K
+ ( /50A5746E R4 R1 100K
   ( 1 GND )
   ( 2 N-000012 )
   ( 3 +5V )
