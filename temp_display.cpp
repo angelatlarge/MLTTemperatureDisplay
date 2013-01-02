@@ -286,10 +286,10 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 #define kADV_TEMPCONVERT_MULT	0.015625
 #endif 
 
-#define kADC_COUNT		2
+#define kADC_COUNT		3
 
-			int8_t aintTempAdjust[kADC_COUNT] = {0, 0};
-			int8_t aidxADC2DispValue[kADC_COUNT] = {1, 2};		// Index of ADC value to Disp value index
+			int8_t 		aintTempAdjust[kADC_COUNT] = {0, 0, +7};
+			uint8_t 	aidxADC2DispValue[kADC_COUNT] = {1, 2, 3};	// Index of ADC value to Disp value index
 			uint32_t	anADCRead[kADC_COUNT];  					// 	Values read from the ADC
 			uint16_t	anSampleCount[kADC_COUNT]; 	 				// 	Number of samples read from the ADC
 volatile	uint8_t		anLastDisplayedValue[kADC_COUNT];  			// 	Final values
@@ -963,12 +963,11 @@ int main(void) {
 	}
 	// Initialize the ADC
 	for (uint8_t i = 0; i<kADC_COUNT; i++) {
-		setDisplayValue(i, kDISPVALUE_NOVALUEAVAILABLE);
+		setDisplayValue(aidxADC2DispValue[i], kDISPVALUE_NOVALUEAVAILABLE);
 		anSampleCount[i] = 0;
 	}
 	idxADCValue = 0;					// Initialize the index
 	//Start converting
-	setDisplayValue(1, 128);
 	ADCSRA = 	
 		 (1<<ADEN)			// ADEN: ADC Enabled
 		|(1<<ADSC) 			// ADSC: Start
@@ -981,21 +980,10 @@ int main(void) {
 		;
 	//~ ADCSRA |= (1<<ADSC) ;	
 	
-	setDisplayValue(1, 129);
 	sei();								//	Start interrupt handling
-	setDisplayValue(1, 130);
 	
 	uint16_t nDisplayValue = 0; 
 	uint16_t nDispCounter = 0;
-	
-	if (0) {
-		if (kDISPVALUE_COUNT > 0) { setDisplayValue(0, 123);	}
-		if (kDISPVALUE_COUNT > 1) { setDisplayValue(1, 216);	}
-		if (kDISPVALUE_COUNT > 2) { setDisplayValue(2, 40);	}
-		if (kDISPVALUE_COUNT > 3) { setDisplayValue(3, 255);	}
-		if (kDISPVALUE_COUNT > 4) { setDisplayValue(4, 128);	}
-		if (kDISPVALUE_COUNT > 5) { setDisplayValue(5, 101); 	}
-	}
 	
 	// Turn off the speaker
 	beepTurnOff();
@@ -1192,20 +1180,20 @@ void CRegime::start() {
 //////////////////////////////////////////////
 
 void CDisplayValuesRegime::encoderLeft() {
+	// Next value
+	if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
+		idxDisplayValue = 0;
+	}
+	// 2. reset the value display timer
+	nValueCycleCount = 0;	
+}
+
+void CDisplayValuesRegime::encoderRight() {
 	// Go to the previous value
 	if (idxDisplayValue==0) {
 		idxDisplayValue = kDISPVALUE_COUNT - 1; 
 	} else {
 		--idxDisplayValue;
-	}
-	// 2. reset the value display timer
-	nValueCycleCount = 0;
-	
-}
-void CDisplayValuesRegime::encoderRight() {
-	// Next value
-	if ( ++idxDisplayValue >= (kDISPVALUE_COUNT) ) {
-		idxDisplayValue = 0;
 	}
 	// 2. reset the value display timer
 	nValueCycleCount = 0;
