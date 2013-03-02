@@ -1,10 +1,19 @@
-/*
-	Clock debug:
-		At SPEEDUP8X, timer is fine, and Bth display is fine too
-		If the CKDIV8 fuse isn't set, not defining SPEEDUP8X means bad news
-		However, even if CLKPR register is set manually, serial COMMs / Bluetooth 
-		does not work correctly if SPEEDUP8X isn't set.
-		
+// Copyright (c) 2012 All Right Reserved, Kirill Shklovsky
+// 
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+// 
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+// 
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+/*	
 	Cathodes
 			SR595 pin	SR595 log	ULN in		ULN out
 			pin 7		Q7			pin 1		pin 16	- LED5&6
