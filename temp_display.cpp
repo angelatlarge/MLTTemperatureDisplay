@@ -220,7 +220,10 @@ volatile	uint32_t	nBthUpdateCount;
 // Led control
 
 
-#define kDISPVALUE_COUNT				4
+/* Number of values (from sensors) displayed */
+#define kDISPVALUE_COUNT				5		/* 	In the current setup, 
+													4 values are sensors (3 temperature)
+													and one is the timer */
 #define kIDXDISPVALUE_SETTING			kDISPVALUE_COUNT
 #define kIDXDISPVALUE_TIMER				0
 #define kDISPVALUE_NOVALUEAVAILABLE		0xFFFF
@@ -229,8 +232,9 @@ volatile	uint32_t	nBthUpdateCount;
 #define kDISPVALUE_CATHODECOUNT			(kDISPVALUE_DIGITCOUNT+kDISPVALUE_INDPAIRSCOUNT)
 
 volatile	uint16_t	aintDisplayValue[kDISPVALUE_COUNT+1];  				// 	Value to be displayed in the LEDs
-																			//  Extra value is for regimes other than value cycling
-volatile	uint8_t		idxDisplayValue = 0;
+																			//  Extra value is for regimes other than value cycling, 
+volatile	uint8_t		idxDisplayValue = 0;								// 	Value (usually temperature) currently displayed
+
 volatile	uint8_t		aintDisplaySegments[kDISPVALUE_COUNT+1][kDISPVALUE_CATHODECOUNT];   // 	Value to be displayed on each led
 																							// 	Extra value is for other regimes
 volatile	uint8_t		nResetting;
@@ -295,13 +299,15 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 #define kADV_TEMPCONVERT_MULT	0.015625
 #endif 
 
-#define kADC_COUNT		3
+#define kADC_COUNT		4
+typedef enum {vtINVALID, vtTEMPERATURE, vtWATERLEVEL} adcValueType_t;
 
-			int8_t 		aintTempAdjust[kADC_COUNT] = {0, 0, +7};
-			uint8_t 	aidxADC2DispValue[kADC_COUNT] = {1, 2, 3};	// Index of ADC value to Disp value index
+			int8_t 		aintValueAdjust[kADC_COUNT] = {0, 0, +7, 0};
+			uint8_t 	aidxADC2DispValue[kADC_COUNT] = {1, 2, 3, 4};	// Index of ADC value to Disp value index
 			uint32_t	anADCRead[kADC_COUNT];  					// 	Values read from the ADC
 			uint16_t	anSampleCount[kADC_COUNT]; 	 				// 	Number of samples read from the ADC
 volatile	uint8_t		anLastDisplayedValue[kADC_COUNT];  			// 	Final values
+			adcValueType_t anValueType[kADC_COUNT] = {vtTEMPERATURE, vtTEMPERATURE, vtTEMPERATURE, vtWATERLEVEL};
 			uint8_t		idxADCValue;
 			uint8_t		ADMUXbase;									// ADMUX without the channel bits
 
@@ -321,7 +327,10 @@ uint16_t tempFromADC(uint16_t intADCValue) {
 	return round(fRetVal);
 }
 
-
+uint16_t waterLevelFromADC(uint16_t intADCValue) {
+	double gallons = ((double)ADC_VBITS/(double)intADCValue) * 0.010516827;
+	return round(gallons*10);
+}
 //////////////////////////////////////////////
 // Beeps
 #define kBEEP_CONTROL_MAXENTRIES	9
@@ -887,8 +896,7 @@ int main(void) {
 		}
 	}
 	
-	// Set the indicators
-	
+	// Initialize the indicators to green
 	for (int i = 0; i<kDISPVALUE_COUNT; i++) {
 		setIndicator(i, i, 0, 1, 0);
 	}
@@ -999,48 +1007,8 @@ int main(void) {
 	
 	beepG_charge();
 	
-	//~ _delay_ms(1000);
-	//~ uint8_t anData[2];
-	//~ anData[0] = aintIndicatorSegmentB[1]|aintIndicatorSegmentB[0];
-	//~ anData[1] = 0x40;
-	//~ sr.writeData(0, 2, anData);
-	//~ sr.setOutput(1);
-	
-	//~ while(1) {
-	//~ }
-	//~ while (0) {
-		//~ char strNumber[10];
-		//~ puts("AT+NAMEtempar");
-		//~ fputs ("AT+NAMEtempar", stdout)	;
-		//~ puts ("Hello, world");
-		//~ _delay_ms(3000);
-		//~ nDisplayValue++;
-	//~ }
-	
-	while (0) {
-		// Just count up
 
-		setDisplayValue(0, nDisplayValue);
-		_delay_ms(250);
-		if ( ++nDisplayValue > 999) {
-			nDisplayValue = 0;
-		}
-		if (++nDispCounter > 20) {
-			fputs ("Hello, world", stdout)	;
-			nDispCounter=0;
-		}
-		//~ sr.setOutput(1);
-		//~ while(1) {
-			//~ for (int i= 0; i<8; i++) {
-				//~ sr.write_byte(0, 1<<i);
-				//~ sr.write_byte(1, 0xFF);
-				//~ sr.writeByte(1, 1<<i);
-				//~ DO_SHORT_DELAY;
-				//~ sr.toggleOutput();
-			//~ }
-		//~ }
-	}
-	
+	// Main loop
 	#define MAX_CMD_LENGTH	20
 	char strCommand[MAX_CMD_LENGTH+1];
 	uint8_t idxChar = 0;
@@ -1049,7 +1017,8 @@ int main(void) {
 			nBthUpdateCount = 0;
 			doBthUpdate();
 		}
-#		ifdef READ_BTH			
+#		ifdef READ_BTH		
+		// Read serial
 		if (UCSR0A & (1<<RXC0)) {
 			// Read serial character
 			char charRead = UDR0;
@@ -1070,7 +1039,6 @@ int main(void) {
 		}
 #		endif /* READ_BTH */
 		
-		//~ _delay_ms(300);		
 	}
 	return 0;
 }
@@ -1090,7 +1058,16 @@ ISR(ADC_vect)
 	anADCRead[idxADCValue] += intADCfullValue;
 	if (++anSampleCount[idxADCValue] >= kSAMPLE_COUNT) {
 		uint32_t nNewValue = anADCRead[idxADCValue] >> kDECIMATE_RIGHTSHIFT;
-		anLastDisplayedValue[idxADCValue] = tempFromADC(nNewValue) + aintTempAdjust[idxADCValue];
+		switch (anValueType[idxADCValue]) {
+		case vtTEMPERATURE:
+			anLastDisplayedValue[idxADCValue] = tempFromADC(nNewValue) + aintValueAdjust[idxADCValue];
+			break;
+		case vtWATERLEVEL:
+			anLastDisplayedValue[idxADCValue] = waterLevelFromADC(nNewValue) + aintValueAdjust[idxADCValue];
+			break;
+		default:
+			anLastDisplayedValue[idxADCValue] = 0;
+		}			
 		setDisplayValue(aidxADC2DispValue[idxADCValue], anLastDisplayedValue[idxADCValue]);
 		anADCRead[idxADCValue] = 0;
 		anSampleCount[idxADCValue] = 0;
@@ -1489,8 +1466,8 @@ ISR(TIMER1_COMPA_vect) {
 	nTimerMinutes = nTimerSeconds / 60;
 	
 	if (nNewMinuteTimerDot != nMinuteTimerDot) {
-		nMinuteTimerDot = nNewMinuteTimerDot;
 		// Update the minute timer display value
+		nMinuteTimerDot = nNewMinuteTimerDot;
 		nDisplayTimerValue = 
 				nCountTimesPrescale
 			/ 	60 					/* 60 seconds per minute */
@@ -1529,11 +1506,3 @@ ISR(TIMER1_COMPA_vect) {
 	nBthUpdateCount++;
 }
 
-
-//~ ISR(RESET) {
-	//~ nResetting = 0xFF;
-	//~ // Shut down the display
-	//~ for (int i=0;i<kDISPVALUE_COUNT;i++) 
-		//~ for (int j=0;j<kDISPVALUE_DIGITCOUNT+kDISPVALUE_INDPAIRSCOUNT;j++) 
-			//~ aintDisplaySegments[i][j] = 0;
-//~ }
