@@ -226,10 +226,17 @@ volatile	uint32_t	nBthUpdateCount;
 													and one is the timer */
 #define kIDXDISPVALUE_SETTING			kDISPVALUE_COUNT
 #define kIDXDISPVALUE_TIMER				0
-#define kDISPVALUE_NOVALUEAVAILABLE		0xFFFF
+
+// Special display value definitions: used to indicate exceptional or error conditions
+#define kDISPVALUE_NOVALUEAVAILABLE		0xFFFF		// No value for this sensor yet
+#define kDISPVALUE_ERROR_M				0xFE00u		// Some sort of error: low word is the error number
+
 #define kDISPVALUE_DIGITCOUNT			3
 #define kDISPVALUE_INDPAIRSCOUNT		3
 #define kDISPVALUE_CATHODECOUNT			(kDISPVALUE_DIGITCOUNT+kDISPVALUE_INDPAIRSCOUNT)
+
+// Error value definitions
+#define ERR_UNEXPECTEDSENSORTYPE	0x0001u
 
 volatile	uint16_t	aintDisplayValue[kDISPVALUE_COUNT+1];  				// 	Value to be displayed in the LEDs
 																			//  Extra value is for regimes other than value cycling, 
@@ -244,32 +251,69 @@ inline uint16_t getDisplayValue(uint8_t idxDispValue) {
 	return aintDisplayValue[idxDispValue];
 }
 
+/* This function sets the value (generally some ADC reading)
+ * that will be displayed on the 7-segment LEDs 
+ * Mainly what the function does is shove the various digits into arrays 
+ * for easy output to 7-segment leds
+ */
 void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 	if (nResetting) { return; }
 	if (aintDisplayValue[idxDispValue]==intNewValue) { return; }
 	
-	switch (aintDisplayValue[idxDispValue] = intNewValue) {
-		case kDISPVALUE_NOVALUEAVAILABLE: {
-			for (int idxDigit=0; idxDigit<kDISPVALUE_DIGITCOUNT; idxDigit++) {
-				ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-					aintDisplaySegments[idxDispValue][idxDigit] = LED7OUT_DASH;
-				}
-			}
-			break;
-		}
-		default: {
-			for (int idxDigit=0; idxDigit<kDISPVALUE_DIGITCOUNT; idxDigit++) {
-				int nCurrentDigit = intNewValue;
-				for (int i = 0; i<idxDigit; i++) {
-					nCurrentDigit = nCurrentDigit / 10;
-				}
-				nCurrentDigit = nCurrentDigit % 10;
-				ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-					aintDisplaySegments[idxDispValue][idxDigit] = aint7segdigits[nCurrentDigit];
-				}
+	aintDisplayValue[idxDispValue] = intNewValue;
+	if (aintDisplayValue[idxDispValue] == kDISPVALUE_NOVALUEAVAILABLE) {
+		// Special "no value available" value
+		for (int idxDigit=0; idxDigit<kDISPVALUE_DIGITCOUNT; idxDigit++) {
+			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+				aintDisplaySegments[idxDispValue][idxDigit] = LED7OUT_DASH;
 			}
 		}
-	}
+	} else {
+		/* 	Either error display or regular value here
+			Both display some sort of value, so we factor that code out below the conditional
+		*/
+		
+		uint16_t nDispValue;		// Value to be displayed
+		uint8_t  nDigitLoopMax;		// Process all digits below this one
+		
+		if ( (aintDisplayValue[idxDispValue] & kDISPVALUE_ERROR_M) == kDISPVALUE_ERROR_M) {
+			// Error display
+			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+				// Display "E" on the leftmost digit
+				aintDisplaySegments[idxDispValue][kDISPVALUE_DIGITCOUNT-1] = LED7OUT_E;
+				// Display the error number on the lower digits
+				nDispValue = (aintDisplayValue[idxDispValue] & 0xFF);
+				nDigitLoopMax = 2;
+				
+			}
+		} else {
+			// Regular value
+			nDispValue = aintDisplayValue[idxDispValue];
+			nDigitLoopMax = kDISPVALUE_DIGITCOUNT;
+		}
+		
+		for (int idxDigit=0; idxDigit<nDigitLoopMax; idxDigit++) {
+			uint8_t nDigitValue = nDispValue % 10;
+			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+				aintDisplaySegments[idxDispValue][idxDigit] = aint7segdigits[nDigitValue];
+			}
+			nDispValue /= 10;
+		}
+		
+/* OLD CODE, PLEASE REMOVE		
+		for (int idxDigit=0; idxDigit<kDISPVALUE_DIGITCOUNT; idxDigit++) {
+			int nCurrentDigit = aintDisplayValue[idxDispValue];
+			for (int i = 0; i<idxDigit; i++) {
+				nCurrentDigit = nCurrentDigit / 10;
+			}
+			nCurrentDigit = nCurrentDigit % 10;
+			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+				aintDisplaySegments[idxDispValue][idxDigit] = aint7segdigits[nCurrentDigit];
+			}
+		}
+*/		
+	} // Block actually displaying some value
+		
 }
 
 //////////////////////////////////////////////
@@ -999,9 +1043,6 @@ int main(void) {
 	
 	sei();								//	Start interrupt handling
 	
-	uint16_t nDisplayValue = 0; 
-	uint16_t nDispCounter = 0;
-	
 	// Turn off the speaker
 	beepTurnOff();
 	
@@ -1066,7 +1107,8 @@ ISR(ADC_vect)
 			anLastDisplayedValue[idxADCValue] = waterLevelFromADC(nNewValue) + aintValueAdjust[idxADCValue];
 			break;
 		default:
-			anLastDisplayedValue[idxADCValue] = 0;
+			// This is an error, should not happen
+			anLastDisplayedValue[idxADCValue] = kDISPVALUE_ERROR_M | ERR_UNEXPECTEDSENSORTYPE;
 		}			
 		setDisplayValue(aidxADC2DispValue[idxADCValue], anLastDisplayedValue[idxADCValue]);
 		anADCRead[idxADCValue] = 0;
