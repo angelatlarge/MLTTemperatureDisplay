@@ -227,16 +227,19 @@ volatile	uint32_t	nBthUpdateCount;
 #define kIDXDISPVALUE_SETTING			kDISPVALUE_COUNT
 #define kIDXDISPVALUE_TIMER				0
 
+#define kTEMPERATURE_MAX				220
+#define kWATERLEVEL_MAX					999L
 // Special display value definitions: used to indicate exceptional or error conditions
 #define kDISPVALUE_NOVALUEAVAILABLE		0xFFFF		// No value for this sensor yet
-#define kDISPVALUE_ERROR_M				0xFE00u		// Some sort of error: low word is the error number
+#define kDISPVALUE_BADREADING			0xFFFE		// Wrong reading
+#define kDISPVALUE_ERROR_M				0xFE00		// Some sort of error: low word is the error number
 
 #define kDISPVALUE_DIGITCOUNT			3
 #define kDISPVALUE_INDPAIRSCOUNT		3
 #define kDISPVALUE_CATHODECOUNT			(kDISPVALUE_DIGITCOUNT+kDISPVALUE_INDPAIRSCOUNT)
 
 // Error value definitions
-#define ERR_UNEXPECTEDSENSORTYPE	0x0001u
+#define ERR_UNEXPECTEDSENSORTYPE	0x0001
 
 volatile	uint16_t	aintDisplayValue[kDISPVALUE_COUNT+1];  				// 	Value to be displayed in the LEDs
 																			//  Extra value is for regimes other than value cycling, 
@@ -256,7 +259,7 @@ inline uint16_t getDisplayValue(uint8_t idxDispValue) {
  * Mainly what the function does is shove the various digits into arrays 
  * for easy output to 7-segment leds
  */
-void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
+void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue, uint8_t nDecimalDotMask = 0) {
 	if (nResetting) { return; }
 	if (aintDisplayValue[idxDispValue]==intNewValue) { return; }
 	
@@ -268,6 +271,14 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 				aintDisplaySegments[idxDispValue][idxDigit] = LED7OUT_DASH;
 			}
 		}
+	} else if (aintDisplayValue[idxDispValue] == kDISPVALUE_BADREADING) {
+		int idxDigit = kDISPVALUE_DIGITCOUNT;
+		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+			// Display "bad"
+			if (--idxDigit>=0) aintDisplaySegments[idxDispValue][idxDigit] = LED7OUT_B;
+			if (--idxDigit>=0) aintDisplaySegments[idxDispValue][idxDigit] = LED7OUT_A;
+			if (--idxDigit>=0) aintDisplaySegments[idxDispValue][idxDigit] = LED7OUT_D;
+		}		
 	} else {
 		/* 	Either error display or regular value here
 			Both display some sort of value, so we factor that code out below the conditional
@@ -284,18 +295,22 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 				// Display the error number on the lower digits
 				nDispValue = (aintDisplayValue[idxDispValue] & 0xFF);
 				nDigitLoopMax = 2;
-				
 			}
 		} else {
 			// Regular value
+			aintDisplaySegments[idxDispValue][kDISPVALUE_DIGITCOUNT-1] = LED7OUT_A;
 			nDispValue = aintDisplayValue[idxDispValue];
 			nDigitLoopMax = kDISPVALUE_DIGITCOUNT;
 		}
-		
+
+		// Show the value, either from error or from ADC
 		for (int idxDigit=0; idxDigit<nDigitLoopMax; idxDigit++) {
 			uint8_t nDigitValue = nDispValue % 10;
 			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
 				aintDisplaySegments[idxDispValue][idxDigit] = aint7segdigits[nDigitValue];
+				if (nDecimalDotMask & 1<<idxDigit) {
+					aintDisplaySegments[idxDispValue][idxDigit] |= LEDSEG_DP;
+				}
 			}
 			nDispValue /= 10;
 		}
@@ -319,8 +334,12 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 //////////////////////////////////////////////
 // ADC stuff
 
-#define ADC_VBITS	16
+#define kADC_BITS	15
 
+#define kDECIMATE_RIGHTSHIFT	(kADC_BITS-10)
+#define kSAMPLE_COUNT			(1UL<<(kDECIMATE_RIGHTSHIFT*2UL))
+#define kADCVALUE_MAX 			((uint32_t)1<<((uint32_t)kADC_BITS))
+/*
 #if ADC_VBITS==13
 // Virtual 13-bit ADC settings
 #define kSAMPLE_COUNT	64
@@ -342,17 +361,21 @@ void setDisplayValue(uint8_t idxDispValue, uint16_t intNewValue) {
 #define kDECIMATE_RIGHTSHIFT	6
 #define kADV_TEMPCONVERT_MULT	0.015625
 #endif 
+*/
+
 
 #define kADC_COUNT		4
+
+
 typedef enum {vtINVALID, vtTEMPERATURE, vtWATERLEVEL} adcValueType_t;
 
 			int8_t 		aintValueAdjust[kADC_COUNT] = {0, 0, +7, 0};
 			uint8_t 	aidxADC2DispValue[kADC_COUNT] = {1, 2, 3, 4};	// Index of ADC value to Disp value index
 			uint32_t	anADCRead[kADC_COUNT];  					// 	Values read from the ADC
 			uint16_t	anSampleCount[kADC_COUNT]; 	 				// 	Number of samples read from the ADC
-volatile	uint8_t		anLastDisplayedValue[kADC_COUNT];  			// 	Final values
+volatile	uint16_t	anLastDisplayedValue[kADC_COUNT];  			// 	Final values
 			adcValueType_t anValueType[kADC_COUNT] = {vtTEMPERATURE, vtTEMPERATURE, vtTEMPERATURE, vtWATERLEVEL};
-			uint8_t		idxADCValue;
+			uint8_t		idxADCValue;								// Index of the ADC value we are reading
 			uint8_t		ADMUXbase;									// ADMUX without the channel bits
 
 uint16_t tempFromADC(uint16_t intADCValue) {
@@ -365,15 +388,24 @@ uint16_t tempFromADC(uint16_t intADCValue) {
 	double c = -1.9589674327464432E+04;
 	double d = 1.4053861754270164E+02;
 	double Offset = 1.5684078545920563E+01;
-	double ADCValueStart = intADCValue * kADV_TEMPCONVERT_MULT;
+	double ADCValueStart = (float)intADCValue / (float)(1<<(kADC_BITS-10));
 	double fRetVal;
 	fRetVal = (a / (b + ADCValueStart) + c / (d + ADCValueStart) ) + Offset;
 	return round(fRetVal);
 }
 
-uint16_t waterLevelFromADC(uint16_t intADCValue) {
-	double gallons = ((double)ADC_VBITS/(double)intADCValue) * 0.010516827;
+float waterLevelFromADC(uint16_t intADCValue) {
+#ifdef DEBUGWATERLEVEL
+	double retval = ((double)intADCValue/(double)kADCVALUE_MAX);
+	return round(retval * 10000.0);
+#elif FIRST_VALUE
+	double gallons = ((double)intADCValue/(double)kADCVALUE_MAX) * 0.010516827;
 	return round(gallons*10);
+#else
+	float gallons = ((float)intADCValue/(float)kADCVALUE_MAX) / 0.0106625 - 1.148182884;
+	if (gallons<0) return 0;
+	return round(gallons*10);
+#endif	
 }
 //////////////////////////////////////////////
 // Beeps
@@ -1094,6 +1126,7 @@ ISR(ADC_vect)
 	uint8_t intADCLo = ADCL;
 	uint8_t intADCHi = ADCH;
 	uint16_t intADCfullValue = ((intADCHi << 8) + intADCLo);
+	uint8_t nDecimalDotMask = 0;
 
 	// Update the samples
 	anADCRead[idxADCValue] += intADCfullValue;
@@ -1101,16 +1134,23 @@ ISR(ADC_vect)
 		uint32_t nNewValue = anADCRead[idxADCValue] >> kDECIMATE_RIGHTSHIFT;
 		switch (anValueType[idxADCValue]) {
 		case vtTEMPERATURE:
-			anLastDisplayedValue[idxADCValue] = tempFromADC(nNewValue) + aintValueAdjust[idxADCValue];
+			if ( (anLastDisplayedValue[idxADCValue] = tempFromADC(nNewValue) + aintValueAdjust[idxADCValue]) > kTEMPERATURE_MAX) /* assign AND test */ {
+				// Maximum temperature exceeded
+				anLastDisplayedValue[idxADCValue] = kDISPVALUE_BADREADING;
+			}
 			break;
 		case vtWATERLEVEL:
-			anLastDisplayedValue[idxADCValue] = waterLevelFromADC(nNewValue) + aintValueAdjust[idxADCValue];
+			if ( (anLastDisplayedValue[idxADCValue] = (waterLevelFromADC(nNewValue)  + aintValueAdjust[idxADCValue]) ) > kWATERLEVEL_MAX) {
+				// Maximum water exceeded
+				anLastDisplayedValue[idxADCValue] = kDISPVALUE_BADREADING;
+			}
+			nDecimalDotMask = 1<<1;	
 			break;
 		default:
 			// This is an error, should not happen
 			anLastDisplayedValue[idxADCValue] = kDISPVALUE_ERROR_M | ERR_UNEXPECTEDSENSORTYPE;
 		}			
-		setDisplayValue(aidxADC2DispValue[idxADCValue], anLastDisplayedValue[idxADCValue]);
+		setDisplayValue(aidxADC2DispValue[idxADCValue], anLastDisplayedValue[idxADCValue], nDecimalDotMask);
 		anADCRead[idxADCValue] = 0;
 		anSampleCount[idxADCValue] = 0;
 	}

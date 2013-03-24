@@ -3,3 +3,7 @@
 *.elf
 *.hex
 *.o
+*.lst
+*.backup*
+*.out
+*.map
